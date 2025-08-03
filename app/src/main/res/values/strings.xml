@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Vector Navigation</string>
+    <string name="center_your_target_in_the_crosshair_and_tap">Center your target in the crosshair and tap</string>
+    <string name="right_arrow">→</string>
+    <string name="gps_accuracy">GPS Accuracy: ±?m</string>
+    <string name="distance">Distance: 0m</string>
+    <string name="bearing">Bearing: 000°</string>
+    <string name="switch_to_gps_view">Switch to GPS View</string>
+    <string name="distance_50m">Distance: 50m</string>
+    <string name="found_it">🎯 Found It!</string>
+    <string name="tap_screen_to_set_navigation_target">Tap screen to set navigation target</string>
+</resources>
