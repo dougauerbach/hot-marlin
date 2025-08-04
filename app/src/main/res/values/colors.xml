@@ -7,4 +7,8 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="progress_start">#4CAF50</color>      <!-- Green -->
+    <color name="progress_middle">#FF9800</color>     <!-- Orange -->
+    <color name="progress_near_target">#F44336</color> <!-- Red -->
+    <color name="progress_complete">#9C27B0</color>   <!-- Purple -->
 </resources>

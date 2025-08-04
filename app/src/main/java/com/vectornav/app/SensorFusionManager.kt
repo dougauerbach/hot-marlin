@@ -105,6 +105,8 @@ class SensorFusionManager(
         Log.d("SensorFusion", "Stopped sensor fusion tracking")
     }
 
+    // In SensorFusionManager.kt - update the updateGpsLocation method
+
     fun updateGpsLocation(newLocation: Location, deviceAzimuth: Float) {
         val startLoc = startLocation ?: return
 
@@ -115,13 +117,12 @@ class SensorFusionManager(
         )
 
         val gpsBearing = if (lastGpsLocation != null) {
-            // Calculate movement direction from GPS
             navigationCalculator.calculateBearing(
                 lastGpsLocation!!.latitude, lastGpsLocation!!.longitude,
                 newLocation.latitude, newLocation.longitude
             )
         } else {
-            deviceAzimuth // Fall back to compass
+            deviceAzimuth
         }
 
         // Determine GPS reliability
@@ -135,19 +136,18 @@ class SensorFusionManager(
 
         val isGpsReliable = newLocation.accuracy < gpsReliabilityThreshold &&
                 gpsDistance > newLocation.accuracy &&
-                gpsSpeed < 10f // Reasonable walking speed
+                gpsSpeed < 10f
 
-        // Fuse GPS with step counter data
+        // Get step-based distance
         val stepBasedDistance = getStepBasedDistance()
 
+        // Fuse GPS with step counter data
         fusedDistance = when {
             !isGpsReliable && stepCounterSensor != null -> {
-                // GPS unreliable, use steps
                 Log.d("SensorFusion", "Using step-based distance: ${stepBasedDistance}m (GPS unreliable)")
                 stepBasedDistance
             }
             gpsDistance < 5f && stepCounterSensor != null -> {
-                // Short distance, blend GPS and steps
                 val stepWeight = 0.6f
                 val gpsWeight = 0.4f
                 val blended = stepBasedDistance * stepWeight + gpsDistance * gpsWeight
@@ -155,7 +155,6 @@ class SensorFusionManager(
                 blended
             }
             else -> {
-                // Long distance or no step counter, trust GPS
                 Log.d("SensorFusion", "Using GPS distance: ${gpsDistance}m")
                 gpsDistance
             }
@@ -164,16 +163,13 @@ class SensorFusionManager(
         // Fuse bearing data
         fusedBearing = when {
             !isGpsReliable -> {
-                // GPS unreliable, use compass with heavy filtering
-                fuseAngles(fusedBearing, deviceAzimuth, 0.1f) // Heavy filtering
+                fuseAngles(fusedBearing, deviceAzimuth, 0.1f)
             }
             gpsDistance > 3f -> {
-                // Sufficient GPS movement, trust GPS bearing
                 gpsBearing
             }
             else -> {
-                // Short distance, blend GPS and compass
-                fuseAngles(gpsBearing, deviceAzimuth, 0.3f) // Light blending
+                fuseAngles(gpsBearing, deviceAzimuth, 0.3f)
             }
         }
 
@@ -184,8 +180,15 @@ class SensorFusionManager(
             targetBearing
         )
 
-        // Calculate confidence based on sensor agreement
-        val confidence = calculateConfidence(isGpsReliable, stepCounterSensor != null, isMoving)
+        // Calculate confidence with all required parameters
+        val confidence = calculateConfidence(
+            gpsReliable = isGpsReliable,
+            hasSteps = stepCounterSensor != null,
+            moving = isMoving,
+            gpsAccuracy = newLocation.accuracy,
+            stepDistance = stepBasedDistance,
+            gpsDistance = gpsDistance
+        )
 
         // Update tracking state
         lastGpsLocation = newLocation
@@ -225,14 +228,50 @@ class SensorFusionManager(
         }
     }
 
-    private fun calculateConfidence(gpsReliable: Boolean, hasSteps: Boolean, moving: Boolean): Float {
-        return when {
-            gpsReliable && moving -> 0.9f          // High confidence
-            gpsReliable && !moving -> 0.7f         // Good confidence
-            !gpsReliable && hasSteps && moving -> 0.6f  // Medium confidence
-            !gpsReliable && hasSteps && !moving -> 0.4f // Low confidence
-            else -> 0.2f                           // Very low confidence
+    private fun calculateConfidence(
+        gpsReliable: Boolean,
+        hasSteps: Boolean,
+        moving: Boolean,
+        gpsAccuracy: Float,
+        stepDistance: Float,
+        gpsDistance: Float
+    ): Float {
+        var confidence = 0.0f
+
+        // Base confidence from GPS reliability
+        confidence += if (gpsReliable) {
+            // Better GPS accuracy = higher confidence
+            when {
+                gpsAccuracy < 3f -> 0.4f
+                gpsAccuracy < 5f -> 0.3f
+                gpsAccuracy < 10f -> 0.2f
+                else -> 0.1f
+            }
+        } else 0.0f
+
+        // Step counter adds confidence when moving
+        if (hasSteps && moving) {
+            confidence += 0.2f
+
+            // If step and GPS distances agree, boost confidence
+            if (gpsReliable && kotlin.math.abs(stepDistance - gpsDistance) < 2f) {
+                confidence += 0.2f
+            }
         }
+
+        // Movement detection adds confidence
+        if (moving) {
+            confidence += 0.1f
+        }
+
+        // Consistency bonus - if sensors agree
+        if (gpsReliable && hasSteps && moving) {
+            val maxDistance = kotlin.math.max(stepDistance, kotlin.math.max(gpsDistance, 1f))
+            val agreement = 1f - (kotlin.math.abs(stepDistance - gpsDistance) / maxDistance)
+            confidence += agreement * 0.1f
+        }
+
+        return confidence.coerceIn(0f, 1f)
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
