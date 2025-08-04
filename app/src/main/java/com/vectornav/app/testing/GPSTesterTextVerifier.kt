@@ -34,9 +34,15 @@ class GPSTesterTextVerifier(
         distanceRemaining: Float,
         isOnTrack: Boolean
     ) {
-        val expectedDistanceText = generateExpectedDistanceText(distanceRemaining)
-        val expectedInstructionText = generateExpectedInstructionText(distanceRemaining, isOnTrack, crossTrackError)
-        val expectedInstructionColor = getExpectedInstructionColor(distanceRemaining, isOnTrack)
+        // Use distanceFromStart to calculate completion percentage and determine text logic
+        val totalDistance = distanceFromStart + distanceRemaining
+        val completionPercentage = if (totalDistance > 0) (distanceFromStart * 100 / totalDistance).toInt() else 0
+
+        val expectedDistanceText = generateExpectedDistanceText(distanceRemaining, completionPercentage)
+        val expectedInstructionText = generateExpectedInstructionText(
+            distanceRemaining, isOnTrack, crossTrackError, distanceFromStart
+        )
+        val expectedInstructionColor = getExpectedInstructionColor(distanceRemaining, isOnTrack, distanceFromStart)
 
         mockDistanceText.text = expectedDistanceText
         mockInstructionText.text = expectedInstructionText
@@ -46,8 +52,9 @@ class GPSTesterTextVerifier(
         val actualInstructionText = mockInstructionText.text.toString()
         val actualInstructionColor = mockInstructionText.currentTextColor
 
-        val distanceTextMatches = actualDistanceText.contains(distanceRemaining.toInt().toString())
-        val instructionTextMatches = verifyInstructionTextLogic(actualInstructionText, isOnTrack, crossTrackError)
+        val distanceTextMatches = actualDistanceText.contains(distanceRemaining.toInt().toString()) ||
+                actualDistanceText.contains(completionPercentage.toString())
+        val instructionTextMatches = verifyInstructionTextLogic(actualInstructionText, isOnTrack, crossTrackError, distanceFromStart)
         val colorCorrect = actualInstructionColor == expectedInstructionColor
 
         val textRecord = TextVerificationRecord(
@@ -67,35 +74,48 @@ class GPSTesterTextVerifier(
         updateTextVerificationDisplay(textRecord)
     }
 
-    private fun generateExpectedDistanceText(distanceRemaining: Float): String {
+    private fun generateExpectedDistanceText(distanceRemaining: Float, completionPercentage: Int): String {
         return when {
-            distanceRemaining < 5f -> "🎯 Almost there! (${(100 * (50 - distanceRemaining) / 50).toInt()}%)"
+            distanceRemaining < 5f -> "🎯 Almost there! (${completionPercentage}% complete)"
             distanceRemaining > 45f -> "Just started - ${distanceRemaining.toInt()}m to go"
-            else -> "${distanceRemaining.toInt()}m remaining (${(100 * (50 - distanceRemaining) / 50).toInt()}% complete)"
+            else -> "${distanceRemaining.toInt()}m remaining (${completionPercentage}% complete)"
         }
     }
 
-    private fun generateExpectedInstructionText(distanceRemaining: Float, isOnTrack: Boolean, crossTrackError: Float): String {
+    private fun generateExpectedInstructionText(
+        distanceRemaining: Float,
+        isOnTrack: Boolean,
+        crossTrackError: Float,
+        distanceFromStart: Float
+    ): String {
         return when {
             distanceRemaining < 5f -> "🎯 You're here! Look around for your target."
             distanceRemaining < 10f -> "Very close! Slow down and look carefully."
-            isOnTrack -> "✅ On track - keep going straight!"
+            distanceFromStart < 2f -> "🚀 Starting navigation - follow the arrow!"
+            isOnTrack -> "✅ On track - keep going straight! (${distanceFromStart.toInt()}m traveled)"
             crossTrackError > 0 -> "⬅️ Move left to get back on track (${kotlin.math.abs(crossTrackError).toInt()}m off)"
             else -> "➡️ Move right to get back on track (${kotlin.math.abs(crossTrackError).toInt()}m off)"
         }
     }
 
-    private fun getExpectedInstructionColor(distanceRemaining: Float, isOnTrack: Boolean): Int {
+    private fun getExpectedInstructionColor(distanceRemaining: Float, isOnTrack: Boolean, distanceFromStart: Float): Int {
         return when {
             distanceRemaining < 5f -> 0xFF9C27B0.toInt() // Purple - complete
             distanceRemaining < 15f -> 0xFFF44336.toInt() // Red - near target
+            distanceFromStart < 2f -> 0xFF2196F3.toInt() // Blue - just started
             distanceRemaining < 35f -> 0xFFFF9800.toInt() // Orange - middle
             else -> 0xFF4CAF50.toInt() // Green - start
         }
     }
 
-    private fun verifyInstructionTextLogic(actualText: String, isOnTrack: Boolean, crossTrackError: Float): Boolean {
+    private fun verifyInstructionTextLogic(
+        actualText: String,
+        isOnTrack: Boolean,
+        crossTrackError: Float,
+        distanceFromStart: Float
+    ): Boolean {
         return when {
+            distanceFromStart < 2f -> actualText.contains("Starting") || actualText.contains("follow")
             isOnTrack -> actualText.contains("On track") || actualText.contains("keep going straight")
             crossTrackError > 0 -> actualText.contains("left") || actualText.contains("⬅️")
             crossTrackError < 0 -> actualText.contains("right") || actualText.contains("➡️")
