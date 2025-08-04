@@ -7,6 +7,7 @@ import kotlin.math.*
 class GPSTesterMovementVerifier(
     private val getViewDimensions: () -> Pair<Int, Int>,
     private val getDisplayMetrics: () -> Float,
+    private val getUserPos: () -> PointF,
     private val updateCallback: (String) -> Unit
 ) {
 
@@ -90,9 +91,12 @@ class GPSTesterMovementVerifier(
     }
 
     private fun getCurrentUserPosition(): PointF {
-        val (viewWidth, viewHeight) = getViewDimensions()
-        // Placeholder - would need actual user position from view
-        return PointF(viewWidth / 2f, viewHeight / 2f)
+        return try {
+            getUserPos()  // Use the provided function
+        } catch (e: Exception) {
+            val (viewWidth, viewHeight) = getViewDimensions()
+            PointF(viewWidth / 2f, viewHeight / 2f)  // Fallback
+        }
     }
 
     private fun shouldIconMove(simulatedDistance: Float): Boolean {

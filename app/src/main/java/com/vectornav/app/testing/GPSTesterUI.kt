@@ -290,7 +290,7 @@ class GPSTesterUI(
             val container = FrameLayout(context).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    300
+                    (resources.displayMetrics.heightPixels * 0.4).toInt()
                 )
                 setBackgroundColor(0xFF2C2C2C.toInt())
             }

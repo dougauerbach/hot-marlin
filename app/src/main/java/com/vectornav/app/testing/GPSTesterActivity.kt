@@ -74,6 +74,7 @@ class GPSTesterActivity : AppCompatActivity(), GPSTesterUI.GPSTesterUICallbacks 
         movementVerifier = GPSTesterMovementVerifier(
             getViewDimensions = { Pair(ui.testingView.width, ui.testingView.height) },
             getDisplayMetrics = { resources.displayMetrics.density },
+            getUserPos = { ui.testingView.getUserPosition() },
             updateCallback = { ui.movementDisplay.text = it }
         )
 

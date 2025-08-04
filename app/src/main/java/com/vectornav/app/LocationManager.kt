@@ -72,7 +72,10 @@ class LocationManager(private val context: Context) {
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
+                Log.d("LocationManager", "📍 LocationManager received update!")
                 locationResult.lastLocation?.let { location ->
+                    Log.d("LocationManager", "📍 New location: lat=${location.latitude}, lon=${location.longitude}, accuracy=${location.accuracy}")
+
                     // Update movement detection
                     updateMovementState(location)
 
@@ -80,7 +83,10 @@ class LocationManager(private val context: Context) {
                     checkAndUpdateInterval()
 
                     // Call user callback
+                    Log.d("LocationManager", "📍 Calling user callback...")
                     userLocationCallback?.invoke(location)
+                } ?: run {
+                    Log.w("LocationManager", "❌ Location result was null!")
                 }
             }
         }
@@ -113,11 +119,12 @@ class LocationManager(private val context: Context) {
     private fun checkAndUpdateInterval() {
         val optimalInterval = getAdaptiveUpdateInterval(isMoving, currentSpeed)
 
+        // TEMPORARILY DISABLE FOR EMULATOR TESTING
         // Only restart if interval changed significantly (>= 500ms difference)
-        if (kotlin.math.abs(optimalInterval - currentInterval) >= 500L) {
-            Log.d("LocationManager", "Adapting interval: ${currentInterval}ms -> ${optimalInterval}ms (speed: ${currentSpeed}m/s, moving: $isMoving)")
-            startLocationUpdatesWithInterval(optimalInterval)
-        }
+        // if (kotlin.math.abs(optimalInterval - currentInterval) >= 500L) {
+        //     Log.d("LocationManager", "Adapting interval: ${currentInterval}ms -> ${optimalInterval}ms (speed: ${currentSpeed}m/s, moving: $isMoving)")
+        //     startLocationUpdatesWithInterval(optimalInterval)
+        // }
     }
 
     private fun getAdaptiveUpdateInterval(isMoving: Boolean, speed: Float): Long {

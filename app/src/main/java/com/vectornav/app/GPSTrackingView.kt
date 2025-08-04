@@ -27,6 +27,12 @@ class GPSTrackingView @JvmOverloads constructor(
     // Create our own NavigationCalculator instance
     private val navigationCalculator = NavigationCalculator()
 
+    // GPS tracking data
+    private var startGpsLat = 0.0
+    private var startGpsLon = 0.0
+    private var currentGpsBearing = 0f
+    private var currentTargetDistance = 50
+
     // Drawing state
     private var isTrackingActive = false
     private var bearingLine = Path()
@@ -71,17 +77,23 @@ class GPSTrackingView @JvmOverloads constructor(
     }
 
     private val breadcrumbPaint = Paint().apply {
-        color = 0x88FFFFFF.toInt() // Semi-transparent white
+        color = 0xFFFFD700.toInt() // Bright gold/yellow - highly visible against green
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+
+    private val borderPaint = Paint().apply {
+        color = 0xFFFFFFFF.toInt() // White border
         style = Paint.Style.FILL
         isAntiAlias = true
     }
 
     private val breadcrumbTrailPaint = Paint().apply {
-        color = 0x44FFFFFF.toInt() // Very faint white line
-        strokeWidth = 3f
+        color = 0xFFFF6B35.toInt() // Bright orange trail - very visible
+        strokeWidth = 4f // Slightly thicker
         style = Paint.Style.STROKE
         isAntiAlias = true
-        pathEffect = DashPathEffect(floatArrayOf(5f, 5f), 0f)
+        pathEffect = DashPathEffect(floatArrayOf(8f, 4f), 0f) // Longer dashes
     }
 
     // View parameters
@@ -100,6 +112,12 @@ class GPSTrackingView @JvmOverloads constructor(
         distanceFromStartMeters: Float,
         onTrack: Boolean
     ) {
+        // Store GPS data for breadcrumb conversion
+        startGpsLat = startLat
+        startGpsLon = startLon
+        currentGpsBearing = bearing
+        currentTargetDistance = targetDistance
+
         isTrackingActive = true
         crossTrackError = crossTrackErrorMeters
         distanceFromStart = distanceFromStartMeters
@@ -215,9 +233,13 @@ class GPSTrackingView @JvmOverloads constructor(
         Log.d("GPSTrackingView", "Final positions: start(${startPosition.x}, ${startPosition.y}), user(${userPosition.x}, ${userPosition.y}), target(${targetPosition.x}, ${targetPosition.y})")
     }
 
+    fun getUserPosition(): PointF {
+        return userPosition  // This should be the actual calculated position
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-
+        Log.d("GPSTrackingView", "onDraw called - isTrackingActive: $isTrackingActive")
         if (!isTrackingActive) {
             // Show instruction text when not tracking
             canvas.drawText(
@@ -275,14 +297,21 @@ class GPSTrackingView @JvmOverloads constructor(
     }
 
     private fun drawBreadcrumbTrail(canvas: Canvas) {
-        if (breadcrumbs.size < 2) return
+        Log.d("GPSTrackingView", "Drawing breadcrumbs: ${breadcrumbs.size} total")
+
+        if (breadcrumbs.size < 2) {
+            Log.d("GPSTrackingView", "Not enough breadcrumbs to draw trail")
+            return
+        }
 
         val trailPath = Path()
         var isFirstPoint = true
 
-        breadcrumbs.forEach { breadcrumb ->
+        breadcrumbs.forEachIndexed { index, breadcrumb ->
             // Convert breadcrumb GPS coordinates to screen coordinates
-            val screenPoint = convertGpsToScreen(breadcrumb.lat, breadcrumb.lon)
+            val screenPoint = convertBreadcrumbGpsToScreen(breadcrumb.lat, breadcrumb.lon)
+
+            Log.d("GPSTrackingView", "Breadcrumb $index: GPS(${breadcrumb.lat}, ${breadcrumb.lon}) -> Screen(${screenPoint.x}, ${screenPoint.y})")
 
             if (isFirstPoint) {
                 trailPath.moveTo(screenPoint.x, screenPoint.y)
@@ -293,24 +322,64 @@ class GPSTrackingView @JvmOverloads constructor(
 
             // Draw individual breadcrumb dot
             val radius = when {
-                breadcrumb.accuracy < 5f -> 6f  // High accuracy = larger dot
-                breadcrumb.accuracy < 10f -> 4f
-                else -> 2f // Low accuracy = smaller dot
+                breadcrumb.accuracy < 5f -> 12f  // High accuracy = larger dot (increased size)
+                breadcrumb.accuracy < 10f -> 10f
+                else -> 8f // Low accuracy = smaller dot (increased size)
             }
 
+            // Draw  border first
+            canvas.drawCircle(screenPoint.x, screenPoint.y, radius + 2f, borderPaint)
+            // Then draw the colored center
             canvas.drawCircle(screenPoint.x, screenPoint.y, radius, breadcrumbPaint)
+            Log.d("GPSTrackingView", "Drew breadcrumb circle at (${screenPoint.x}, ${screenPoint.y}) with radius $radius")
         }
 
         // Draw the connecting trail
         canvas.drawPath(trailPath, breadcrumbTrailPaint)
+        Log.d("GPSTrackingView", "Drew breadcrumb trail connecting ${breadcrumbs.size} points")
     }
-    private fun convertGpsToScreen(lat: Double, lon: Double): PointF {
-        // Convert GPS coordinates to screen coordinates using the same logic as calculateViewCoordinates
-        // This is a simplified version - you might want to use the full calculation
+    private fun convertBreadcrumbGpsToScreen(lat: Double, lon: Double): PointF {
+        if (!isTrackingActive || width == 0 || height == 0) {
+            return PointF(width / 2f, height / 2f)
+        }
 
-        // For now, just return current user position as placeholder
-        // You'll want to implement proper GPS->screen coordinate conversion here
-        return PointF(userPosition.x, userPosition.y)
+        // Now we have access to the stored GPS data
+        val distanceFromStart = navigationCalculator.calculateDistance(startGpsLat, startGpsLon, lat, lon)
+        val bearingFromStart = navigationCalculator.calculateBearing(startGpsLat, startGpsLon, lat, lon)
+
+        // Convert to along-track and cross-track distances (same as calculateViewCoordinates)
+        val bearingRad = Math.toRadians(currentGpsBearing.toDouble())
+        val currentBearingRad = Math.toRadians(bearingFromStart.toDouble())
+
+        val alongTrackDistance = distanceFromStart * cos(currentBearingRad - bearingRad)
+        val crossTrackDistance = distanceFromStart * sin(currentBearingRad - bearingRad)
+
+        // Use the same scaling logic as calculateViewCoordinates
+        val dpToPx = resources.displayMetrics.density
+        val reservedTop = 80 * dpToPx
+        val reservedBottom = 140 * dpToPx
+        val availableHeight = height - reservedTop - reservedBottom
+        val availableWidth = width.toFloat()
+
+        // Calculate the same scale as the main view
+        val maxDistance = maxOf(
+            currentTargetDistance.toFloat(),
+            kotlin.math.abs(alongTrackDistance).toFloat(),
+            kotlin.math.abs(crossTrackDistance).toFloat() * 2
+        )
+
+        val scaleForHeight = (availableHeight * 0.8f) / maxDistance
+        val scaleForWidth = (availableWidth * 0.8f) / maxDistance
+        val viewScale = kotlin.math.min(scaleForHeight, scaleForWidth)
+
+        // Calculate screen position using same logic as calculateViewCoordinates
+        val startScreenX = width / 2f
+        val startScreenY = reservedTop + availableHeight - 40 * dpToPx
+
+        return PointF(
+            startScreenX + (crossTrackDistance * viewScale).toFloat(),
+            startScreenY - (alongTrackDistance * viewScale).toFloat()
+        )
     }
     private fun drawIcon(canvas: Canvas, x: Float, y: Float, drawableResId: Int, size: Float) {
         val drawable = ContextCompat.getDrawable(context, drawableResId)
