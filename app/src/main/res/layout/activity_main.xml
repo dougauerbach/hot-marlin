@@ -22,7 +22,8 @@
         android:id="@+id/gpsTrackingView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#3F826D"
+        android:background="@drawable/gps_background"
+        android:scaleType="centerCrop"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -80,40 +81,14 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Navigation Information Panel -->
-    <LinearLayout
-        android:id="@+id/navigationInfo"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="60dp"
-        android:background="#CC000000"
-        android:orientation="vertical"
-        android:padding="12dp"
-        android:visibility="gone"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
-
-        <TextView
-            android:id="@+id/distanceText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/distance_50m"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-    </LinearLayout>
-
     <!-- Found It Button (for GPS view only) -->
     <Button
         android:id="@+id/foundItButton"
-        android:layout_width="wrap_content"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
-        android:layout_marginBottom="100dp"
+        android:layout_marginBottom="8dp"
         android:background="#CC4CAF50"
         android:text="@string/found_it"
         android:textAllCaps="false"
@@ -121,8 +96,10 @@
         android:textSize="16sp"
         android:textStyle="bold"
         android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintBottom_toTopOf="@+id/instructionText"
+        app:layout_constraintEnd_toEndOf="@+id/instructionText"
+        app:layout_constraintStart_toStartOf="@+id/instructionText"
+        app:layout_constraintWidth_default="spread" />
 
     <!-- Instruction Text Panel -->
     <TextView

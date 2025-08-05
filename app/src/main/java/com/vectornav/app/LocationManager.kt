@@ -83,24 +83,24 @@ class LocationManager(private val context: Context) {
 
         currentInterval = intervalMs
 
-        // Determine priority based on interval (shorter interval = higher priority)
-        val priority = when {
-            intervalMs <= 500L -> Priority.PRIORITY_HIGH_ACCURACY
-            intervalMs <= 2000L -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
-            else -> Priority.PRIORITY_LOW_POWER
-        }
-
+        // USE AGGRESSIVE CONFIGURATION LIKE THE EMULATOR TEST:
+        // Always use high accuracy and aggressive intervals for better GPS performance
         val locationRequest = LocationRequest.Builder(
-            priority,
+            Priority.PRIORITY_HIGH_ACCURACY,  // Always use high accuracy
             intervalMs
-        ).setMinUpdateIntervalMillis(intervalMs / 2).build()
+        ).apply {
+            setMinUpdateIntervalMillis(intervalMs / 2)  // Allow faster updates
+            setMaxUpdateDelayMillis(intervalMs)         // Don't delay updates
+            setWaitForAccurateLocation(false)           // Don't wait for perfect accuracy
+            setMinUpdateDistanceMeters(0f)              // Allow updates even without movement
+        }.build()
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 locationResult.lastLocation?.let { location ->
-                    //Log.d("LocationManager", "📍 New location: lat=${location.latitude}, lon=${location.longitude}, accuracy=${location.accuracy}")
+                    Log.d("LocationManager", "📍 Location update: lat=${location.latitude}, lon=${location.longitude}, accuracy=${location.accuracy}m")
 
-                    // ADD THE FILTERING CHECK HERE:
+                    // Apply filtering check
                     if (!shouldProcessLocation(location)) {
                         return  // Skip processing this update
                     }
@@ -126,7 +126,7 @@ class LocationManager(private val context: Context) {
         )
 
         isLocationUpdatesActive = true
-        Log.d("LocationManager", "Started location updates with interval: ${intervalMs}ms, priority: $priority")
+        Log.d("LocationManager", "Started aggressive location updates with interval: ${intervalMs}ms")
     }
 
     private fun updateMovementState(location: Location) {
