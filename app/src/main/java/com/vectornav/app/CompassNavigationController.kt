@@ -53,8 +53,6 @@ class CompassNavigationController(
         }
     }
 
-    fun getTargetDistance(): Int = targetDistance
-
     fun isCurrentlyNavigating(): Boolean = isNavigating
 
     /**
@@ -153,7 +151,7 @@ class CompassNavigationController(
         Log.d("VectorNav", "Distance: ${currentDistance}m")
 
         // Update navigation line with smoothed bearing
-        updateNavigationLineWithBearing(currentLocation, deviceAzimuth, smoothedGpsBearing)
+        updateNavigationLineWithBearing(deviceAzimuth, smoothedGpsBearing)
 
         // Generate guidance text and status
         val guidanceText = generateGuidanceText(currentDistance, relativeBearing)
@@ -171,7 +169,7 @@ class CompassNavigationController(
     /**
      * Updates navigation line when device orientation changes
      */
-    private fun updateNavigationLineWithBearing(currentLocation: Location, deviceAzimuth: Float, gpsBearing: Float) {
+    private fun updateNavigationLineWithBearing(deviceAzimuth: Float, gpsBearing: Float) {
         if (!isNavigating) return
 
         Log.d("VectorNav", "Line update: GPS=${gpsBearing}°, device=${deviceAzimuth}°, relative=${normalizeAngle(gpsBearing - deviceAzimuth)}°")
@@ -193,7 +191,7 @@ class CompassNavigationController(
             destinationLatitude, destinationLongitude
         )
 
-        updateNavigationLineWithBearing(currentLocation, deviceAzimuth, gpsCalculatedBearing)
+        updateNavigationLineWithBearing(deviceAzimuth, gpsCalculatedBearing)
     }
 
     private fun calculateDestination() {

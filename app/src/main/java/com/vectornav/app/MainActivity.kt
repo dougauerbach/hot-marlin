@@ -2,7 +2,6 @@ package com.vectornav.app
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -315,7 +314,7 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
-        android.util.Log.d("VectorNav", "Switched to Compass (AR) view")
+        Log.d("VectorNav", "Switched to Compass (AR) view")
     }
 
     // In MainActivity.kt - update the switchToGpsView method:
@@ -531,7 +530,7 @@ class MainActivity : AppCompatActivity(),
 
     // Sensor handling (for AR mode)
     private fun setupSensors() {
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         rotationVectorSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
@@ -561,7 +560,7 @@ class MainActivity : AppCompatActivity(),
 
                     // Only update AR navigation if in compass mode
                     if (!isGpsViewMode && compassNavigationController.isCurrentlyNavigating() && isPhoneAcceptablyVertical()) {
-                        val azimuthChange = kotlin.math.abs(filteredAzimuth - lastNavigationAzimuth)
+                        val azimuthChange = abs(filteredAzimuth - lastNavigationAzimuth)
 
                         if ((currentTime - lastNavigationUpdateTime > navigationUpdateIntervalMs) &&
                             (azimuthChange > minimumAzimuthChange)) {
@@ -626,7 +625,7 @@ class MainActivity : AppCompatActivity(),
             try {
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(this, cameraSelector, preview)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 Toast.makeText(this, "Camera initialization failed", Toast.LENGTH_SHORT).show()
             }
         }, ContextCompat.getMainExecutor(this))

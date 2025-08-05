@@ -5,8 +5,6 @@ import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Handles all gesture interactions for the GPS tracking view.

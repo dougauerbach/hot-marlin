@@ -32,7 +32,6 @@ class GPSTrackingView @JvmOverloads constructor(
     private var startGpsLon = 0.0
     private var currentGpsBearing = 0f
     private var currentTargetDistance = 50
-    private var currentBearing = 0f
 
     // Drawing state
     private var isTrackingActive = false
@@ -55,7 +54,7 @@ class GPSTrackingView @JvmOverloads constructor(
     }
 
     private val offTrackPaint = Paint().apply {
-        color = offTrackPaintColor.toInt() // Purple (opposite of material green) off-track indicator
+        color = offTrackPaintColor // Purple (opposite of material green) off-track indicator
         strokeWidth = 3f
         style = Paint.Style.STROKE
         isAntiAlias = true
@@ -67,34 +66,6 @@ class GPSTrackingView @JvmOverloads constructor(
         textSize = 48f
         isAntiAlias = true
         textAlign = Paint.Align.CENTER
-    }
-
-    private val distancePaint = Paint().apply {
-        color = 0xFFFFFFFF.toInt() // White text
-        textSize = 40f
-        isAntiAlias = true
-        textAlign = Paint.Align.LEFT  // Left aligned
-        typeface = Typeface.DEFAULT_BOLD
-    }
-
-    private val breadcrumbPaint = Paint().apply {
-        color = 0xFFFFD700.toInt() // Bright gold/yellow - highly visible against green
-        style = Paint.Style.FILL
-        isAntiAlias = true
-    }
-
-    private val borderPaint = Paint().apply {
-        color = 0xFFFFFFFF.toInt() // White border
-        style = Paint.Style.FILL
-        isAntiAlias = true
-    }
-
-    private val breadcrumbTrailPaint = Paint().apply {
-        color = 0xFFFF6B35.toInt() // Bright orange trail - very visible
-        strokeWidth = 4f // Slightly thicker
-        style = Paint.Style.STROKE
-        isAntiAlias = true
-        pathEffect = DashPathEffect(floatArrayOf(8f, 4f), 0f) // Longer dashes
     }
 
     // Add these paint objects to the class properties
@@ -118,7 +89,7 @@ class GPSTrackingView @JvmOverloads constructor(
     }
 
     // Gesture handling
-    private lateinit var gestureHandler: GPSViewGestureHandler
+    private var gestureHandler: GPSViewGestureHandler
 
     // View transformation state (replaces fixed viewScale)
     private var viewScale = 50.0f  // Now variable instead of fixed
@@ -158,7 +129,7 @@ class GPSTrackingView @JvmOverloads constructor(
             calculateViewCoordinates(
                 startGpsLat, startGpsLon,
                 lastKnownCurrentLat, lastKnownCurrentLon, // Store these when GPS updates
-                currentGpsBearing, currentTargetDistance
+                currentGpsBearing
             )
         }
     }
@@ -241,7 +212,7 @@ class GPSTrackingView @JvmOverloads constructor(
         isOnTrack = onTrack
 
         // Convert GPS coordinates to view coordinates
-        calculateViewCoordinates(startLat, startLon, currentLat, currentLon, bearing, targetDistance)
+        calculateViewCoordinates(startLat, startLon, currentLat, currentLon, bearing)
 
         Log.d("GPSTrackingView", "View updated: user($userPosition), crossTrack=${crossTrackError}m, onTrack=$isOnTrack")
 
@@ -281,8 +252,7 @@ class GPSTrackingView @JvmOverloads constructor(
         startLon: Double,
         currentLat: Double,
         currentLon: Double,
-        bearing: Float,
-        targetDistance: Int
+        bearing: Float
     ) {
         // Use NavigationCalculator for consistency and accuracy
         val distanceFromStart = navigationCalculator.calculateDistance(
@@ -314,7 +284,7 @@ class GPSTrackingView @JvmOverloads constructor(
 
         // BEARING LINE: Calculate safe top boundary (below buttons)
         val buttonAreaBottom = 120 * dpToPx // 60dp margin + ~48dp button height + 12dp padding
-        val safeTopBoundary = kotlin.math.max(reservedTop, buttonAreaBottom)
+        val safeTopBoundary = max(reservedTop, buttonAreaBottom)
 
         // CALCULATE POSITIONS WITHOUT PAN OFFSET FIRST
         // Base start position (center of available area)
@@ -323,7 +293,7 @@ class GPSTrackingView @JvmOverloads constructor(
 
         // Base bearing line end position
         val maxBearingLineLength = baseStartY - safeTopBoundary
-        val bearingLineLength = kotlin.math.min(1000f * viewScale, maxBearingLineLength)
+        val bearingLineLength = min(1000f * viewScale, maxBearingLineLength)
         val baseTargetX = baseStartX
         val baseTargetY = baseStartY - bearingLineLength
 
@@ -357,10 +327,6 @@ class GPSTrackingView @JvmOverloads constructor(
         Log.d("GPSTrackingView", "  User: (${userPosition.x}, ${userPosition.y})")
         Log.d("GPSTrackingView", "  Target: (${targetPosition.x}, ${targetPosition.y})")
         Log.d("GPSTrackingView", "User off-track by: ${crossTrackDistance}m, along-track: ${alongTrackDistance}m")
-    }
-
-    fun getUserPosition(): PointF {
-        return userPosition  // This should be the actual calculated position
     }
 
     override fun onDraw(canvas: Canvas) {
