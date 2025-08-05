@@ -30,7 +30,7 @@ class NavigationLineManager(private val context: MainActivity) {
      * Creates the navigation line view and adds it to the activity layout.
      */
     private fun createNavigationView() {
-        val parentLayout = context.binding.root as androidx.constraintlayout.widget.ConstraintLayout
+        val parentLayout = context.binding.root
 
         // Remove existing view if any
         taperedLineView?.let { parentLayout.removeView(it) }
@@ -69,16 +69,10 @@ class NavigationLineManager(private val context: MainActivity) {
      */
     fun removeNavigationView() {
         taperedLineView?.let { view ->
-            val parentLayout = context.binding.root as androidx.constraintlayout.widget.ConstraintLayout
+            val parentLayout = context.binding.root
             parentLayout.removeView(view)
         }
         taperedLineView = null
     }
 
-    /**
-     * Checks if the navigation line is currently active.
-     */
-    fun isNavigationLineActive(): Boolean {
-        return taperedLineView != null
-    }
 }

@@ -8,7 +8,6 @@ import android.util.Log
 import android.view.View
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 // Enhanced LargeTaperedLineView with self-contained navigation logic
 class LargeTaperedLineView(context: Context) : View(context) {
@@ -23,6 +22,8 @@ class LargeTaperedLineView(context: Context) : View(context) {
         style = Paint.Style.FILL
         isAntiAlias = true
     }
+
+    private val bladePath = Path()
 
     fun updateNavigationLine(
         targetBearing: Float,
@@ -96,10 +97,6 @@ class LargeTaperedLineView(context: Context) : View(context) {
         // Width calculations based on screen width
         val screenWidth = width.toFloat()
         val startWidth = screenWidth * 0.33f  // 33% of screen width at bottom
-        val endWidth = 8f                     // Very narrow at tip for sharp blade effect
-
-        // Create road blade path that emerges from bottom of screen
-        val bladePath = Path()
 
         // Bottom edge spans the full width needed, anchored at screen bottom
         val bottomY = height.toFloat()  // Force bottom to be at screen edge

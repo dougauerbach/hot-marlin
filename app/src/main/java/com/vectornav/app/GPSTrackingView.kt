@@ -1,5 +1,6 @@
 package com.vectornav.app
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
@@ -89,7 +90,8 @@ class GPSTrackingView @JvmOverloads constructor(
     }
 
     // Gesture handling
-    private var gestureHandler: GPSViewGestureHandler
+    // Initialize gesture handler
+    private var gestureHandler: GPSViewGestureHandler = GPSViewGestureHandler(context, this)
 
     // View transformation state (replaces fixed viewScale)
     private var viewScale = 50.0f  // Now variable instead of fixed
@@ -102,28 +104,30 @@ class GPSTrackingView @JvmOverloads constructor(
     // System UI insets for navigation bar, status bar, etc.
     private var systemInsets = Rect()
 
-    init {
-        // Initialize gesture handler
-        gestureHandler = GPSViewGestureHandler(context, this)
-    }
-
     // GPSViewGestureHandler.GestureCallback implementation
     override fun onPanChanged(offsetX: Float, offsetY: Float) {
         panOffsetX = offsetX
         panOffsetY = offsetY
         Log.d("GPSTrackingView", "Pan offset: (${panOffsetX}, ${panOffsetY})")
 
-        // DON'T recalculate from GPS - just apply the new pan offset to existing positions
-        // The invalidate() call from the gesture handler will trigger onDraw() with updated positions
+        // We need to recalculate because the The invalidate() call from the gesture handler did not trigger onDraw() with updated positions
+        if (isTrackingActive) {
+            // Use the last known GPS coordinates to recalculate with new scale
+            calculateViewCoordinates(
+                startGpsLat, startGpsLon,
+                lastKnownCurrentLat, lastKnownCurrentLon, // Store these when GPS updates
+                currentGpsBearing
+            )
+        }
     }
 
     // Also update onScaleChanged to recalculate positions
     override fun onScaleChanged(newScale: Float) {
         val oldScale = viewScale
         viewScale = newScale
-        Log.d("GPSTrackingView", "Scale changed: ${oldScale} -> ${viewScale} pixels/meter")
+        Log.d("GPSTrackingView", "Scale changed: $oldScale -> $viewScale pixels/meter")
 
-        // FOR SCALE CHANGES: We do need to recalculate because the GPS distances need to be re-scaled
+        // We need to recalculate because the GPS distances need to be re-scaled
         if (isTrackingActive) {
             // Use the last known GPS coordinates to recalculate with new scale
             calculateViewCoordinates(
@@ -143,6 +147,7 @@ class GPSTrackingView @JvmOverloads constructor(
     }
 
     // Override onTouchEvent to handle gestures
+    @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         // Let gesture handler process the event first
         val gestureHandled = gestureHandler.onTouchEvent(event)
@@ -218,30 +223,6 @@ class GPSTrackingView @JvmOverloads constructor(
 
         invalidate()
     }
-    /* TEMPORARILY DISABLED: BREADCRUMBS
-    fun updateTrackingWithBreadcrumbs(
-        startLat: Double,
-        startLon: Double,
-        currentLat: Double,
-        currentLon: Double,
-        bearing: Float,
-        targetDistance: Int,
-        crossTrackErrorMeters: Float,
-        distanceFromStartMeters: Float,
-        onTrack: Boolean,
-        breadcrumbList: List<BreadcrumbPoint>
-    ) {
-        // Store breadcrumbs
-        breadcrumbs = breadcrumbList
-
-        // Call existing update method
-        updateTracking(
-            startLat, startLon, currentLat, currentLon,
-            bearing, targetDistance, crossTrackErrorMeters,
-            distanceFromStartMeters, onTrack
-        )
-    }
-    */
     fun clearTracking() {
         isTrackingActive = false
         breadcrumbs = emptyList()
@@ -270,11 +251,7 @@ class GPSTrackingView @JvmOverloads constructor(
         val alongTrackDistance = distanceFromStart * cos(currentBearingRad - bearingRad)
         val crossTrackDistance = distanceFromStart * sin(currentBearingRad - bearingRad)
 
-        Log.d("GPSTrackingView", "NavigationCalculator: distance=${distanceFromStart}m, bearing=${currentBearing}°")
-        Log.d("GPSTrackingView", "Calculated: alongTrack=${alongTrackDistance}m, crossTrack=${crossTrackDistance}m")
-
-        // viewScale is now managed by gestureHandler - it's variable, not fixed
-        Log.d("GPSTrackingView", "Using variable scale: ${viewScale} pixels/meter")
+        Log.d("GPSTrackingView", "NavigationCalculator: distance=${distanceFromStart}m, bearing=${currentBearing}° Calculated: alongTrack=${alongTrackDistance}m, crossTrack=${crossTrackDistance}m variable scale: $viewScale pixels/meter")
 
         // Screen layout constants
         val dpToPx = resources.displayMetrics.density
@@ -322,11 +299,7 @@ class GPSTrackingView @JvmOverloads constructor(
         bearingLine.moveTo(startPosition.x, startPosition.y)
         bearingLine.lineTo(targetPosition.x, targetPosition.y)
 
-        Log.d("GPSTrackingView", "Positions with scale=${viewScale}, pan=(${panOffsetX}, ${panOffsetY}):")
-        Log.d("GPSTrackingView", "  Start: (${startPosition.x}, ${startPosition.y})")
-        Log.d("GPSTrackingView", "  User: (${userPosition.x}, ${userPosition.y})")
-        Log.d("GPSTrackingView", "  Target: (${targetPosition.x}, ${targetPosition.y})")
-        Log.d("GPSTrackingView", "User off-track by: ${crossTrackDistance}m, along-track: ${alongTrackDistance}m")
+        Log.d("CalculateViewCoordinates", "Positions with scale=${viewScale}, pan=(${panOffsetX}, ${panOffsetY}): Start: (${startPosition.x}, ${startPosition.y}) User: (${userPosition.x}, ${userPosition.y}) User off-track by: ${crossTrackDistance}m, along-track: ${alongTrackDistance}m")
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -348,9 +321,10 @@ class GPSTrackingView @JvmOverloads constructor(
 
         // Draw off-track indicator if needed
         if (!isOnTrack) {
-            val perpX = userPosition.x
-            val perpY = findPerpendicularPointOnLine(userPosition, startPosition, targetPosition)
-            canvas.drawLine(userPosition.x, userPosition.y, perpX, perpY, offTrackPaint)
+            val perpendicularPointX = userPosition.x
+            val perpendicularPointY = findPerpendicularPointOnLine(userPosition, startPosition, targetPosition)
+            canvas.drawLine(userPosition.x, userPosition.y, perpendicularPointX, perpendicularPointY, offTrackPaint)
+            Log.d("GPSTrackingView", "Drew OffTrack line - see it? - Start: (${userPosition.x}, ${userPosition.y}) End: ($perpendicularPointX, $perpendicularPointY)")
         }
 
         // Draw start position marker (smaller, different color)
@@ -476,79 +450,4 @@ class GPSTrackingView @JvmOverloads constructor(
 
         return lineStart.y + t * (lineEnd.y - lineStart.y)
     }
-    /* TEMPORARILY DISABLED: BREADCRUMB (START)
-        private fun drawBreadcrumbTrail(canvas: Canvas) {
-            //Log.d("GPSTrackingView", "Drawing breadcrumbs: ${breadcrumbs.size} total")
-
-            if (breadcrumbs.size < 2) {
-                Log.d("GPSTrackingView", "Not enough breadcrumbs to draw trail")
-                return
-            }
-
-            val trailPath = Path()
-            var isFirstPoint = true
-
-            breadcrumbs.forEachIndexed { index, breadcrumb ->
-                // Convert breadcrumb GPS coordinates to screen coordinates
-                val screenPoint = convertBreadcrumbGpsToScreen(breadcrumb.lat, breadcrumb.lon)
-
-                //Log.d("GPSTrackingView", "Breadcrumb $index: GPS(${breadcrumb.lat}, ${breadcrumb.lon}) -> Screen(${screenPoint.x}, ${screenPoint.y})")
-
-                if (isFirstPoint) {
-                    trailPath.moveTo(screenPoint.x, screenPoint.y)
-                    isFirstPoint = false
-                } else {
-                    trailPath.lineTo(screenPoint.x, screenPoint.y)
-                }
-
-                // Draw individual breadcrumb dot
-                val radius = when {
-                    breadcrumb.accuracy < 5f -> 12f  // High accuracy = larger dot (increased size)
-                    breadcrumb.accuracy < 10f -> 10f
-                    else -> 8f // Low accuracy = smaller dot (increased size)
-                }
-
-                // Draw  border first
-                canvas.drawCircle(screenPoint.x, screenPoint.y, radius + 2f, borderPaint)
-                // Then draw the colored center
-                canvas.drawCircle(screenPoint.x, screenPoint.y, radius, breadcrumbPaint)
-                //Log.d("GPSTrackingView", "Drew breadcrumb circle at (${screenPoint.x}, ${screenPoint.y}) with radius $radius")
-            }
-
-            // Draw the connecting trail
-            canvas.drawPath(trailPath, breadcrumbTrailPaint)
-            Log.d("GPSTrackingView", "Drew breadcrumb trail connecting ${breadcrumbs.size} points")
-        }
-        private fun convertBreadcrumbGpsToScreen(lat: Double, lon: Double): PointF {
-            if (!isTrackingActive || width == 0 || height == 0) {
-                return PointF(width / 2f, height / 2f)
-            }
-
-            // Use the CURRENT GPS tracking data and CURRENT scale/positions
-            val distanceFromStart = navigationCalculator.calculateDistance(startGpsLat, startGpsLon, lat, lon)
-            val bearingFromStart = navigationCalculator.calculateBearing(startGpsLat, startGpsLon, lat, lon)
-
-            // Convert to along-track and cross-track distances using CURRENT bearing
-            val bearingRad = Math.toRadians(currentGpsBearing.toDouble())
-            val currentBearingRad = Math.toRadians(bearingFromStart.toDouble())
-
-            val alongTrackDistance = distanceFromStart * cos(currentBearingRad - bearingRad)
-            val crossTrackDistance = distanceFromStart * sin(currentBearingRad - bearingRad)
-
-            // Use CURRENT scale and CURRENT start position (not stored values)
-            val screenX = startPosition.x + (crossTrackDistance * viewScale).toFloat()
-            val screenY = startPosition.y - (alongTrackDistance * viewScale).toFloat()
-
-            // Apply the same clamping as user position
-            val padding = 50f
-            val dpToPx = resources.displayMetrics.density
-            val reservedTop = 80 * dpToPx
-            val reservedBottom = 140 * dpToPx
-
-            return PointF(
-                screenX.coerceIn(padding, width - padding),
-                screenY.coerceIn(reservedTop + padding, height - reservedBottom - padding)
-            )
-        }
-        // TEMPORARILY DISABLED: BREADCRUMB (END) */
 }

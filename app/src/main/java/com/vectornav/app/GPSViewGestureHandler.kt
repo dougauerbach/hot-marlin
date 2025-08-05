@@ -48,7 +48,7 @@ class GPSViewGestureHandler(
                 val newScale = (currentScale * scaleFactor).coerceIn(minScale, maxScale)
 
                 if (newScale != currentScale) {
-                    Log.d("GPSGestures", "Scale: ${currentScale} -> ${newScale} (factor: $scaleFactor)")
+                    Log.d("GPSGestures", "Scale: $currentScale -> $newScale (factor: $scaleFactor)")
                     currentScale = newScale
                     callback.onScaleChanged(currentScale)
                     callback.onViewInvalidate()

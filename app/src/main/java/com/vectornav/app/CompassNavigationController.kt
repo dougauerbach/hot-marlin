@@ -128,7 +128,7 @@ class CompassNavigationController(
             }
 
             val filteredBearing = if (kotlin.math.abs(bearingDiff) > 3f) {
-                Log.d("VectorNav", "⚠️ GPS BEARING JUMP DETECTED: ${lastGpsBearing}° → ${rawGpsBearing}° (${bearingDiff}°)")
+                Log.d("VectorNav", "GPS BEARING JUMP DETECTED: ${lastGpsBearing}° → ${rawGpsBearing}° (${bearingDiff}°)")
                 // Use heavily filtered bearing for large jumps
                 gpsBearingFilter.filter(rawGpsBearing)
             } else {
@@ -195,11 +195,11 @@ class CompassNavigationController(
     }
 
     private fun calculateDestination() {
-        val destinationCoords = navigationCalculator.calculateDestination(
+        val destinationCoordinates = navigationCalculator.calculateDestination(
             startLatitude, startLongitude, targetBearing, targetDistance.toFloat()
         )
-        destinationLatitude = destinationCoords.first
-        destinationLongitude = destinationCoords.second
+        destinationLatitude = destinationCoordinates.first
+        destinationLongitude = destinationCoordinates.second
     }
 
     private fun generateGuidanceText(currentDistance: Int, relativeBearing: Float): String {

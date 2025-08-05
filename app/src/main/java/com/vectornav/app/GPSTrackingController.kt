@@ -11,7 +11,7 @@ import kotlin.math.*
  */
 class GPSTrackingController(
     private val navigationCalculator: NavigationCalculator,
-    private val context: Context
+    context: Context
 ) : SensorFusionManager.SensorFusionListener {
 
     // Navigation state - SIMPLIFIED
@@ -27,9 +27,10 @@ class GPSTrackingController(
     // Auto-reset configuration
     private val maxDistanceBeforeReset = 1000f // 1km threshold
     private var lastResetCheck = 0L
-    private val resetCheckInterval = 5000L // Check every 5 seconds
+    private val resetCheckInterval = 800L // Check every resetCheckInterval seconds
 
-    private lateinit var sensorFusionManager: SensorFusionManager
+    private var sensorFusionManager: SensorFusionManager =
+        SensorFusionManager(context, navigationCalculator)
 
     // Callback interface for UI updates
     interface GPSTrackingUpdateListener {
@@ -50,7 +51,6 @@ class GPSTrackingController(
     private var updateListener: GPSTrackingUpdateListener? = null
 
     init {
-        sensorFusionManager = SensorFusionManager(context, navigationCalculator)
         sensorFusionManager.setListener(this)
         sensorFusionManager.initialize()
     }
@@ -129,8 +129,6 @@ class GPSTrackingController(
             currentLocation.latitude, currentLocation.longitude
         )
 
-        Log.d("GPSTracking", "Auto-reset check: distance from start = ${distanceFromStart}m")
-
         // If distance is too large, auto-reset
         if (distanceFromStart > maxDistanceBeforeReset) {
             Log.d("GPSTracking", "🔄 AUTO-RESET: Distance too large (${distanceFromStart}m > ${maxDistanceBeforeReset}m)")
@@ -161,13 +159,9 @@ class GPSTrackingController(
         val currentLat = startLatitude  // For UI purposes, use start location
         val currentLon = startLongitude // Real position is calculated by fusion
 
-        val distanceRemaining = maxOf(0f, targetDistance - fusedDistance)
         val isOnTrack = abs(crossTrackError) < 2f
 
-        Log.d("GPSTracking", "Sensor fusion update:")
-        Log.d("GPSTracking", "Fused distance: ${fusedDistance}m")
-        Log.d("GPSTracking", "Cross-track error: ${crossTrackError}m")
-        Log.d("GPSTracking", "GPS reliable: $isGpsReliable, Confidence: $confidence")
+        Log.d("GPSTracking", "Sensor fusion update: Fused distance: ${fusedDistance}m Cross-track error: ${crossTrackError}m GPS reliable: $isGpsReliable, Confidence: $confidence")
 
         // Notify UI with fused data
         updateListener?.onPositionUpdate(

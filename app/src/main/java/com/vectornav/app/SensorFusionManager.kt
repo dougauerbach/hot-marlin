@@ -254,7 +254,7 @@ class SensorFusionManager(
             confidence += 0.2f
 
             // If step and GPS distances agree, boost confidence
-            if (gpsReliable && kotlin.math.abs(stepDistance - gpsDistance) < 2f) {
+            if (gpsReliable && abs(stepDistance - gpsDistance) < 2f) {
                 confidence += 0.2f
             }
         }
@@ -266,8 +266,8 @@ class SensorFusionManager(
 
         // Consistency bonus - if sensors agree
         if (gpsReliable && hasSteps && moving) {
-            val maxDistance = kotlin.math.max(stepDistance, kotlin.math.max(gpsDistance, 1f))
-            val agreement = 1f - (kotlin.math.abs(stepDistance - gpsDistance) / maxDistance)
+            val maxDistance = max(stepDistance, max(gpsDistance, 1f))
+            val agreement = 1f - (abs(stepDistance - gpsDistance) / maxDistance)
             confidence += agreement * 0.1f
         }
 

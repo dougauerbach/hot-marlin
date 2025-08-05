@@ -194,7 +194,6 @@ class MainActivity : AppCompatActivity(),
                 lastLocationUpdateTime = currentTime
 
                 if (isGpsViewMode && gpsTrackingController.isCurrentlyTracking()) {
-                    Log.d("VectorNav", "🎯 Updating GPS tracking controller...")
                     gpsTrackingController.updatePosition(location, filteredAzimuth)
                 } else if (!isGpsViewMode && compassNavigationController.isCurrentlyNavigating()) {
                     compassNavigationController.updateNavigation(location, filteredAzimuth)
@@ -472,23 +471,23 @@ class MainActivity : AppCompatActivity(),
         return when {
             // User is on the bearing line
             isOnTrack -> {
-                "✅ On track - continue straight (${distanceFromStart.toInt()}m traveled)"
+                if (distanceFromStart > 0) "Go forward (${distanceFromStart.toInt()}m traveled)" else "Proceed forward"
             }
 
             // User is off the bearing line
             crossTrackAbs < 5f -> {
                 val direction = if (crossTrackError > 0) "left" else "right"
-                "📍 Close! Move ${direction} ${crossTrackAbs.toInt()}m to "
+                "Close! Move $direction ${crossTrackAbs.toInt()}m to "
             }
 
             crossTrackAbs < 15f -> {
                 val direction = if (crossTrackError > 0) "left" else "right"
-                "🧭 Move ${direction} ${crossTrackAbs.toInt()}m "
+                "Move $direction ${crossTrackAbs.toInt()}m "
             }
 
             else -> {
                 val direction = if (crossTrackError > 0) "left" else "right"
-                "🔄 Far off bearing - head ${direction} ${crossTrackAbs.toInt()}m to "
+                "Far off course - head $direction ${crossTrackAbs.toInt()}m"
             }
         }
     }

@@ -11,7 +11,7 @@ import com.google.android.gms.location.*
 
 class LocationManager(private val context: Context) {
 
-    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private var fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
     private lateinit var locationCallback: LocationCallback
     private var userLocationCallback: ((Location) -> Unit)? = null
 
@@ -24,10 +24,6 @@ class LocationManager(private val context: Context) {
     private var lastProcessedLocation: Location? = null
     private val minimumLocationChange = 0.5f // meters
     private val minimumTimeChange = 1000L // milliseconds
-
-    init {
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-    }
 
     private fun shouldProcessLocation(newLocation: Location): Boolean {
         val lastLoc = lastProcessedLocation ?: return true
@@ -98,12 +94,11 @@ class LocationManager(private val context: Context) {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 locationResult.lastLocation?.let { location ->
-                    Log.d("LocationManager", "📍 Location update: lat=${location.latitude}, lon=${location.longitude}, accuracy=${location.accuracy}m")
-
                     // Apply filtering check
                     if (!shouldProcessLocation(location)) {
                         return  // Skip processing this update
                     }
+                    Log.d("LocationManager", "📍 Location update: lat=${location.latitude}, lon=${location.longitude}, accuracy=${location.accuracy}m")
 
                     lastProcessedLocation = location
 
@@ -131,7 +126,6 @@ class LocationManager(private val context: Context) {
 
     private fun updateMovementState(location: Location) {
         // Update speed and movement detection
-        val previousSpeed = currentSpeed
         currentSpeed = if (location.hasSpeed()) location.speed else 0f
 
         // Consider moving if speed > 0.5 m/s (1.8 km/h) - walking pace
@@ -217,9 +211,4 @@ class LocationManager(private val context: Context) {
             Log.d("LocationManager", "Stopped location updates")
         }
     }
-
-    // Getter methods for debugging/monitoring
-    fun getCurrentSpeed(): Float = currentSpeed
-    fun isCurrentlyMoving(): Boolean = isMoving
-    fun getCurrentUpdateInterval(): Long = currentInterval
 }
