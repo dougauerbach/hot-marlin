@@ -1,6 +1,7 @@
 package com.vectornav.app
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.Sensor
@@ -8,19 +9,14 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.Vibrator
-import android.os.VibrationEffect
-import android.os.VibratorManager
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresPermission
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
@@ -30,7 +26,6 @@ import com.vectornav.app.databinding.ActivityMainBinding
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
-import kotlin.math.min
 
 // Google Play Services Location imports
 
@@ -44,7 +39,7 @@ data class BreadcrumbPoint(
 
 class MainActivity : AppCompatActivity(),
     SensorEventListener,
-    NavigationController.NavigationUpdateListener,
+    CompassNavigationController.NavigationUpdateListener,
     GPSTrackingController.GPSTrackingUpdateListener {
 
     lateinit var binding: ActivityMainBinding
@@ -53,20 +48,10 @@ class MainActivity : AppCompatActivity(),
     private lateinit var navigationCalculator: NavigationCalculator
     private lateinit var navigationLineManager: NavigationLineManager
 
-    // Breadcrumbs
-    private val breadcrumbs = mutableListOf<BreadcrumbPoint>()
-    private var lastBreadcrumbLocation: Location? = null
-    private val breadcrumbMinDistance = 2f // meters between breadcrumbs
-    private val maxBreadcrumbs = 100
     private var lastKnownLocation: Location? = null
 
-    // Haptic feedback
-    private lateinit var vibrator: Vibrator
-    private var lastHapticTime: Long = 0
-    private val hapticCooldownMs = 1000L // Prevent too frequent vibrations
-
     // Dual navigation controllers
-    private lateinit var arNavigationController: NavigationController  // Renamed for clarity
+    private lateinit var compassNavigationController: CompassNavigationController
     private lateinit var gpsTrackingController: GPSTrackingController
 
     // View mode state
@@ -92,8 +77,6 @@ class MainActivity : AppCompatActivity(),
     private var lastNavigationAzimuth: Float = 0f
     private val minimumAzimuthChange = 0.2f
 
-    private var hapticFeedbackEnabled = true
-
     // Permission launcher
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -108,42 +91,6 @@ class MainActivity : AppCompatActivity(),
             Toast.makeText(this, "Camera and Location permissions required", Toast.LENGTH_LONG).show()
             finish()
         }
-    }
-
-    private fun addBreadcrumb(location: Location, distanceFromStart: Float = 0f) {
-        // Only add breadcrumb if we've moved enough distance
-        lastBreadcrumbLocation?.let { lastLoc ->
-            val distance = navigationCalculator.calculateDistance(
-                lastLoc.latitude, lastLoc.longitude,
-                location.latitude, location.longitude
-            )
-            if (distance < breadcrumbMinDistance) {
-                Log.d("VectorNav", "🍞 Skipping breadcrumb - insufficient movement")
-                return
-            }
-        }
-
-        val breadcrumb = BreadcrumbPoint(
-            lat = location.latitude,
-            lon = location.longitude,
-            timestamp = System.currentTimeMillis(),
-            distanceFromStart = distanceFromStart,
-            accuracy = location.accuracy
-        )
-
-        breadcrumbs.add(breadcrumb)
-        lastBreadcrumbLocation = location
-
-        // Keep only recent breadcrumbs
-        if (breadcrumbs.size > maxBreadcrumbs) {
-            breadcrumbs.removeAt(0)
-        }
-    }
-
-    private fun clearBreadcrumbs() {
-        breadcrumbs.clear()
-        lastBreadcrumbLocation = null
-        Log.d("VectorNav", "Cleared breadcrumb trail")
     }
 
     private fun getAdaptiveUpdateInterval(isMoving: Boolean, speed: Float): Long {
@@ -176,6 +123,7 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -187,11 +135,11 @@ class MainActivity : AppCompatActivity(),
         navigationLineManager = NavigationLineManager(this)
 
         // Initialize both navigation controllers
-        arNavigationController = NavigationController(navigationCalculator, navigationLineManager)
+        compassNavigationController = CompassNavigationController(navigationCalculator, navigationLineManager)
         gpsTrackingController = GPSTrackingController(navigationCalculator, context = this)
 
         // Set update listeners
-        arNavigationController.setUpdateListener(this)
+        compassNavigationController.setUpdateListener(this)
         gpsTrackingController.setUpdateListener(this)
 
         // Initialize sensors
@@ -211,14 +159,6 @@ class MainActivity : AppCompatActivity(),
 
         // Set up touch listener for target selection
         binding.cameraPreview.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_DOWN) {
-                handleScreenTap()
-                true
-            } else false
-        }
-
-        // Set up GPS tracking view touch listener
-        binding.gpsTrackingView.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_DOWN) {
                 handleScreenTap()
                 true
@@ -257,8 +197,8 @@ class MainActivity : AppCompatActivity(),
                 if (isGpsViewMode && gpsTrackingController.isCurrentlyTracking()) {
                     Log.d("VectorNav", "🎯 Updating GPS tracking controller...")
                     gpsTrackingController.updatePosition(location, filteredAzimuth)
-                } else if (!isGpsViewMode && arNavigationController.isCurrentlyNavigating()) {
-                    arNavigationController.updateNavigation(location, filteredAzimuth)
+                } else if (!isGpsViewMode && compassNavigationController.isCurrentlyNavigating()) {
+                    compassNavigationController.updateNavigation(location, filteredAzimuth)
                 }
             }
         }
@@ -269,16 +209,6 @@ class MainActivity : AppCompatActivity(),
         // Adjust UI for system bars
         adjustInstructionTextForSystemUI()
 
-        // Initialize the vibrator based on the Android version
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vibrator = vibratorManager.defaultVibrator
-        } else {
-            // Suppress the deprecation warning for the necessary fallback
-            @Suppress("DEPRECATION")
-            val oldVibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            vibrator = oldVibrator
-        }
         // Initially hide the GPS view toggle button
         binding.toggleViewButton.visibility = View.GONE
 
@@ -338,41 +268,21 @@ class MainActivity : AppCompatActivity(),
 
             } else {
                 // Start AR navigation
-                arNavigationController.setNavigationTarget(location, filteredAzimuth)
-                arNavigationController.setTargetDistance(1000)
+                compassNavigationController.setNavigationTarget(location, filteredAzimuth)
+                compassNavigationController.setTargetDistance(1000)
             }
         }
     }
 
     private fun stopAllNavigation() {
-        arNavigationController.stopNavigation()
+        compassNavigationController.stopNavigation()
         gpsTrackingController.stopTracking()
         // Reduce to normal accuracy when navigation stops (save battery)
         locationManager.updateLocationRequestPriority(highAccuracy = false)
     }
-    // Optional: Add a method to monitor location performance
-    private fun logLocationStats() {
-        Log.d("VectorNav", "Location stats:")
-        Log.d("VectorNav", "- Speed: ${locationManager.getCurrentSpeed()}m/s")
-        Log.d("VectorNav", "- Moving: ${locationManager.isCurrentlyMoving()}")
-        Log.d("VectorNav", "- Update interval: ${locationManager.getCurrentUpdateInterval()}ms")
-    }
 
-    // Optional: Call this periodically to see how the adaptive system is working
-    private fun startLocationMonitoring() {
-        val handler = android.os.Handler(Looper.getMainLooper())
-        val monitoringRunnable = object : Runnable {
-            override fun run() {
-                if (isAnyNavigationActive()) {
-                    logLocationStats()
-                    handler.postDelayed(this, 10000) // Log every 10 seconds during navigation
-                }
-            }
-        }
-        handler.post(monitoringRunnable)
-    }
     private fun isAnyNavigationActive(): Boolean {
-        return arNavigationController.isCurrentlyNavigating() || gpsTrackingController.isCurrentlyTracking()
+        return compassNavigationController.isCurrentlyNavigating() || gpsTrackingController.isCurrentlyTracking()
     }
 
     private fun toggleView() {
@@ -400,8 +310,8 @@ class MainActivity : AppCompatActivity(),
             gpsTrackingController.stopTracking()
 
             locationManager.getCurrentLocation { location ->
-                arNavigationController.setNavigationTarget(location, trackingInfo.initialBearing)
-                arNavigationController.setTargetDistance(trackingInfo.targetDistance)
+                compassNavigationController.setNavigationTarget(location, trackingInfo.initialBearing)
+                compassNavigationController.setTargetDistance(trackingInfo.targetDistance)
             }
         }
 
@@ -422,9 +332,9 @@ class MainActivity : AppCompatActivity(),
         binding.toggleViewButton.text = "Switch to Compass View"
 
         // Transfer navigation state if needed
-        if (arNavigationController.isCurrentlyNavigating()) {
-            val navInfo = arNavigationController.getNavigationInfo()
-            arNavigationController.stopNavigation()
+        if (compassNavigationController.isCurrentlyNavigating()) {
+            val navInfo = compassNavigationController.getNavigationInfo()
+            compassNavigationController.stopNavigation()
 
             // PRESERVE ORIGINAL START LOCATION - don't use current location
             val originalStartLocation = Location("preserved").apply {
@@ -463,84 +373,6 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    private fun normalizeAngle(angle: Float): Float {
-        var normalized = angle
-        while (normalized > 180f) normalized -= 360f
-        while (normalized < -180f) normalized += 360f
-        return normalized
-    }
-
-    @RequiresPermission(Manifest.permission.VIBRATE)
-    private fun provideTactileGuidance(relativeBearing: Float, distance: Int) {
-        if (!hapticFeedbackEnabled) return
-
-        val currentTime = System.currentTimeMillis()
-
-        // Cooldown to prevent constant vibration
-        if (currentTime - lastHapticTime < hapticCooldownMs) return
-
-        // Only vibrate if vibrator is available
-        if (!::vibrator.isInitialized || !vibrator.hasVibrator()) return
-
-        when {
-            distance < 5 -> {
-                // Very close - excited rapid pulses
-                val pattern = longArrayOf(0, 50, 50, 50, 50, 50)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(pattern, -1)
-                }
-                lastHapticTime = currentTime
-            }
-
-            abs(relativeBearing) < 5f -> {
-                // On target - gentle confirmation pulse
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(100)
-                }
-                lastHapticTime = currentTime
-            }
-
-            abs(relativeBearing) > 15f -> {
-                // Way off course - stronger correction pattern
-                val intensity = min(abs(relativeBearing) / 45f, 1f)
-                val pattern = longArrayOf(0, 200, 100, 200)
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    val amplitudes = intArrayOf(0, (intensity * 255).toInt(), 0, (intensity * 255).toInt())
-                    vibrator.vibrate(VibrationEffect.createWaveform(pattern, amplitudes, -1))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(pattern, -1)
-                }
-                lastHapticTime = currentTime
-            }
-        }
-    }
-
-    @RequiresPermission(Manifest.permission.VIBRATE)
-    fun toggleHapticFeedback() {
-        hapticFeedbackEnabled = !hapticFeedbackEnabled
-        Toast.makeText(this,
-            "Haptic feedback ${if (hapticFeedbackEnabled) "enabled" else "disabled"}",
-            Toast.LENGTH_SHORT).show()
-
-        // Give a quick test vibration when enabling
-        if (hapticFeedbackEnabled && ::vibrator.isInitialized && vibrator.hasVibrator()) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(50)
-            }
-        }
-    }
-
     // AR Navigation callbacks
     override fun onNavigationStarted(targetBearing: Float, targetDistance: Int) {
         showNavigationUI()
@@ -570,8 +402,6 @@ class MainActivity : AppCompatActivity(),
         binding.instructionText.text = guidanceText
         binding.instructionText.visibility = View.VISIBLE
         binding.instructionText.bringToFront()
-
-        provideTactileGuidance(relativeBearing, currentDistance)
     }
 
     // GPS Tracking callbacks
@@ -614,48 +444,19 @@ class MainActivity : AppCompatActivity(),
         val displayLat = lastKnownLocation?.latitude ?: currentLat
         val displayLon = lastKnownLocation?.longitude ?: currentLon
 
-        /* DISABLED: BREADCRUMB
-        // Create location for breadcrumb using the REAL GPS coordinates
-        val currentLocation = Location("gps").apply {
-            latitude = displayLat  // Use real GPS coordinates
-            longitude = displayLon // Use real GPS coordinates
-            accuracy = if (confidence > 0.5f) 5f else 15f
-            time = System.currentTimeMillis()
-        }
-
-        addBreadcrumb(currentLocation, distanceFromStart)
-
-        // Update GPS tracking view with breadcrumbs using the same REAL GPS coordinates
-        binding.gpsTrackingView.updateTrackingWithBreadcrumbs(
+        binding.gpsTrackingView.updateTracking(
             trackingInfo.startLatitude,
             trackingInfo.startLongitude,
-            displayLat,                     // Same coordinates as breadcrumb
-            displayLon,                     // Same coordinates as breadcrumb
+            displayLat,
+            displayLon,
             trackingInfo.initialBearing,
             trackingInfo.targetDistance,
             crossTrackError,
             distanceFromStart,
-            isOnTrack,
-            breadcrumbs
+            isOnTrack
         )
-        */
-        // INSTEAD: Update GPS tracking view WITHOUT breadcrumbs
-            binding.gpsTrackingView.updateTracking(
-                trackingInfo.startLatitude,
-                trackingInfo.startLongitude,
-                displayLat,
-                displayLon,
-                trackingInfo.initialBearing,
-                trackingInfo.targetDistance,
-                crossTrackError,
-                distanceFromStart,
-                isOnTrack
-            )
-
 
         //  Progress indicator focuses on bearing line adherence
-        val relativeBearing = normalizeAngle(trackingInfo.initialBearing - filteredAzimuth)
-        provideTactileGuidance(relativeBearing, distanceFromStart.toInt()) // Use distance traveled, not remaining
         binding.instructionText.text = generateBearingLineGuidanceText(
             distanceFromStart, crossTrackError, isOnTrack
         )
@@ -678,17 +479,17 @@ class MainActivity : AppCompatActivity(),
             // User is off the bearing line
             crossTrackAbs < 5f -> {
                 val direction = if (crossTrackError > 0) "left" else "right"
-                "📍 Close! Move ${direction} ${crossTrackAbs.toInt()}m to get back on track"
+                "📍 Close! Move ${direction} ${crossTrackAbs.toInt()}m to "
             }
 
             crossTrackAbs < 15f -> {
                 val direction = if (crossTrackError > 0) "left" else "right"
-                "🧭 Move ${direction} ${crossTrackAbs.toInt()}m to to get back on track"
+                "🧭 Move ${direction} ${crossTrackAbs.toInt()}m "
             }
 
             else -> {
                 val direction = if (crossTrackError > 0) "left" else "right"
-                "🔄 Far off bearing - head ${direction} ${crossTrackAbs.toInt()}m to get back on track"
+                "🔄 Far off bearing - head ${direction} ${crossTrackAbs.toInt()}m to "
             }
         }
     }
@@ -710,8 +511,6 @@ class MainActivity : AppCompatActivity(),
             "🔄 GPS tracking reset - was ${distanceFromStart.toInt()}m from start",
             Toast.LENGTH_SHORT).show()
 
-        clearBreadcrumbs()
-        Log.d("VectorNav", "🔄 Breadcrumbs cleared after GPS reset")
     }
 
     private fun showNavigationUI() {
@@ -761,14 +560,14 @@ class MainActivity : AppCompatActivity(),
                     updateDeviceOrientation(it.values)
 
                     // Only update AR navigation if in compass mode
-                    if (!isGpsViewMode && arNavigationController.isCurrentlyNavigating() && isPhoneAcceptablyVertical()) {
+                    if (!isGpsViewMode && compassNavigationController.isCurrentlyNavigating() && isPhoneAcceptablyVertical()) {
                         val azimuthChange = kotlin.math.abs(filteredAzimuth - lastNavigationAzimuth)
 
                         if ((currentTime - lastNavigationUpdateTime > navigationUpdateIntervalMs) &&
                             (azimuthChange > minimumAzimuthChange)) {
 
                             locationManager.getCurrentLocation { location ->
-                                arNavigationController.updateNavigationLine(location, filteredAzimuth)
+                                compassNavigationController.updateNavigationLine(location, filteredAzimuth)
                             }
 
                             lastNavigationUpdateTime = currentTime
