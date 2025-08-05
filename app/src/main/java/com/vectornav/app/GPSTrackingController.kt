@@ -14,12 +14,12 @@ class GPSTrackingController(
     private val context: Context
 ) : SensorFusionManager.SensorFusionListener {
 
-    // Navigation state
+    // Navigation state - SIMPLIFIED
     private var isTracking = false
     private var initialBearing: Float = 0f
     private var startLatitude: Double = 0.0
     private var startLongitude: Double = 0.0
-    private var targetDistance: Int = 50 // Default 50 meters
+    private val targetDistance: Int = 1000 // FIXED 1000m - no longer changeable
     private var foundLatitude: Double = 0.0
     private var foundLongitude: Double = 0.0
     private var isTargetFound = false
@@ -40,9 +40,8 @@ class GPSTrackingController(
             currentLon: Double,
             distanceFromStart: Float,
             crossTrackError: Float,
-            distanceRemaining: Float,
             isOnTrack: Boolean,
-            confidence: Float  // NEW: confidence in the measurement
+            confidence: Float
         )
         fun onTargetFound(estimatedDistance: Int, actualDistance: Float)
         fun onTrackingReset(distanceFromStart: Float, currentTargetDistance: Int) {}
@@ -59,12 +58,6 @@ class GPSTrackingController(
     fun setUpdateListener(listener: GPSTrackingUpdateListener) {
         updateListener = listener
     }
-
-    fun setTargetDistance(distance: Int) {
-        targetDistance = distance
-    }
-
-    fun getTargetDistance(): Int = targetDistance
 
     fun isCurrentlyTracking(): Boolean = isTracking
 
@@ -155,9 +148,6 @@ class GPSTrackingController(
 
             // Start new tracking from current location
             startTracking(currentLocation, deviceAzimuth)
-
-            // Restore the target distance
-            setTargetDistance(currentTargetDistance)
         }
     }
     // SensorFusionManager.SensorFusionListener implementation
@@ -172,18 +162,17 @@ class GPSTrackingController(
         val currentLon = startLongitude // Real position is calculated by fusion
 
         val distanceRemaining = maxOf(0f, targetDistance - fusedDistance)
-        val isOnTrack = abs(crossTrackError) < 10f
+        val isOnTrack = abs(crossTrackError) < 2f
 
         Log.d("GPSTracking", "Sensor fusion update:")
         Log.d("GPSTracking", "Fused distance: ${fusedDistance}m")
         Log.d("GPSTracking", "Cross-track error: ${crossTrackError}m")
-        Log.d("GPSTracking", "Distance remaining: ${distanceRemaining}m")
         Log.d("GPSTracking", "GPS reliable: $isGpsReliable, Confidence: $confidence")
 
         // Notify UI with fused data
         updateListener?.onPositionUpdate(
             currentLat, currentLon, fusedDistance, crossTrackError,
-            distanceRemaining, isOnTrack, confidence
+            isOnTrack, confidence
         )
     }
 
@@ -204,9 +193,7 @@ class GPSTrackingController(
 
         Log.d("GPSTracking", "Target found!")
         Log.d("GPSTracking", "Found at: ($foundLatitude, $foundLongitude)")
-        Log.d("GPSTracking", "Estimated distance: ${targetDistance}m")
         Log.d("GPSTracking", "Actual distance: ${actualDistance}m")
-        Log.d("GPSTracking", "Estimation error: ${actualDistance - targetDistance}m")
 
         // Notify UI
         updateListener?.onTargetFound(targetDistance, actualDistance)
@@ -218,7 +205,7 @@ class GPSTrackingController(
     data class TrackingInfo(
         val isTracking: Boolean,
         val initialBearing: Float,
-        val targetDistance: Int,
+        val targetDistance: Int = 1000, // Always 1000m
         val startLatitude: Double,
         val startLongitude: Double,
         val isTargetFound: Boolean,
@@ -230,7 +217,7 @@ class GPSTrackingController(
         return TrackingInfo(
             isTracking = isTracking,
             initialBearing = initialBearing,
-            targetDistance = targetDistance,
+            targetDistance = 1000, // FIXED - always 1000m
             startLatitude = startLatitude,
             startLongitude = startLongitude,
             isTargetFound = isTargetFound,

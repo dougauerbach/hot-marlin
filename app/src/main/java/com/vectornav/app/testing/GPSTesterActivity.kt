@@ -109,7 +109,7 @@ class GPSTesterActivity : AppCompatActivity(), GPSTesterUI.GPSTesterUICallbacks 
 
             override fun onPositionUpdate(
                 currentLat: Double, currentLon: Double, distanceFromStart: Float,
-                crossTrackError: Float, distanceRemaining: Float, isOnTrack: Boolean, confidence: Float
+                crossTrackError: Float, isOnTrack: Boolean, confidence: Float
             ) {
                 ui.testingView.updateTracking(
                     movementSimulator.startLat, movementSimulator.startLon,

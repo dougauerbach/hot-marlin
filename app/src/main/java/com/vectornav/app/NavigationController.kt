@@ -236,6 +236,8 @@ class NavigationController(
         val isNavigating: Boolean,
         val targetBearing: Float,
         val targetDistance: Int,
+        val startLatitude: Double,
+        val startLongitude: Double,
         val destinationLatitude: Double,
         val destinationLongitude: Double
     )
@@ -245,6 +247,8 @@ class NavigationController(
             isNavigating = isNavigating,
             targetBearing = targetBearing,
             targetDistance = targetDistance,
+            startLatitude = startLatitude,
+            startLongitude = startLongitude,
             destinationLatitude = destinationLatitude,
             destinationLongitude = destinationLongitude
         )
