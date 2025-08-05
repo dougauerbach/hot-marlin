@@ -10,6 +10,7 @@ import android.hardware.SensorManager
 import android.location.Location
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.os.Vibrator
 import android.os.VibrationEffect
@@ -114,18 +115,12 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun addBreadcrumb(location: Location, distanceFromStart: Float = 0f) {
-        Log.d("VectorNav", "🍞 Adding breadcrumb attempt:")
-        Log.d("VectorNav", "🍞   New location: (${location.latitude}, ${location.longitude})")
-        Log.d("VectorNav", "🍞   Last location: ${lastBreadcrumbLocation?.let { "(${it.latitude}, ${it.longitude})" } ?: "null"}")
-
-
         // Only add breadcrumb if we've moved enough distance
         lastBreadcrumbLocation?.let { lastLoc ->
             val distance = navigationCalculator.calculateDistance(
                 lastLoc.latitude, lastLoc.longitude,
                 location.latitude, location.longitude
             )
-            Log.d("VectorNav", "🍞 Breadcrumb check: moved ${distance}m, min required: ${breadcrumbMinDistance}m")
             if (distance < breadcrumbMinDistance) {
                 Log.d("VectorNav", "🍞 Skipping breadcrumb - insufficient movement")
                 return
@@ -147,8 +142,6 @@ class MainActivity : AppCompatActivity(),
         if (breadcrumbs.size > maxBreadcrumbs) {
             breadcrumbs.removeAt(0)
         }
-
-        Log.d("VectorNav", "🍞 Added breadcrumb #${breadcrumbs.size}: distance=${distanceFromStart}m, accuracy=${location.accuracy}m")
     }
 
     private fun clearBreadcrumbs() {
@@ -273,7 +266,10 @@ class MainActivity : AppCompatActivity(),
             val oldVibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
             vibrator = oldVibrator
         }
+        // Initially hide the GPS view toggle button
+        binding.toggleViewButton.visibility = View.GONE
 
+        /*
         // GPSTester helper: START
         val testLaunchButton = Button(this).apply {
             text = "🔧 Test"
@@ -294,6 +290,7 @@ class MainActivity : AppCompatActivity(),
         }
         (binding.root as androidx.constraintlayout.widget.ConstraintLayout).addView(testLaunchButton)
         // GPSTester helper: END
+        */
     }
 
     private fun handleScreenTap() {
@@ -391,6 +388,8 @@ class MainActivity : AppCompatActivity(),
         android.util.Log.d("VectorNav", "Switched to Compass (AR) view")
     }
 
+    // In MainActivity.kt - update the switchToGpsView method:
+
     private fun switchToGpsView() {
         isGpsViewMode = true
 
@@ -399,75 +398,36 @@ class MainActivity : AppCompatActivity(),
         binding.gpsTrackingView.visibility = View.VISIBLE
         binding.foundItButton.visibility = View.VISIBLE
 
-        // ADD TEST BUTTON TEMPORARILY
-        val testButton = Button(this).apply {
-            text = "🧪 Test Update"
-            layoutParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(
-                androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT,
-                120
-            ).apply {
-                startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                setMargins(20, 500, 0, 0)
-            }
-            setOnClickListener {
-                testGPSUpdate()
-            }
-        }
-        (binding.root as androidx.constraintlayout.widget.ConstraintLayout).addView(testButton)
-
-
         // Update toggle button
         binding.toggleViewButton.text = "Switch to Compass View"
 
-        // Always start GPS tracking
-        locationManager.getCurrentLocation { location ->
-            if (arNavigationController.isCurrentlyNavigating()) {
-                // Transfer existing navigation
-                Log.d("VectorNav", "🔄 Transferring navigation state to GPS tracking...")
-                val navInfo = arNavigationController.getNavigationInfo()
-                arNavigationController.stopNavigation()
+        // Transfer navigation state if needed
+        if (arNavigationController.isCurrentlyNavigating()) {
+            val navInfo = arNavigationController.getNavigationInfo()
+            arNavigationController.stopNavigation()
+
+            locationManager.getCurrentLocation { location ->
                 gpsTrackingController.startTracking(location, navInfo.targetBearing)
                 gpsTrackingController.setTargetDistance(navInfo.targetDistance)
-            } else {
-                // Start GPS tracking without target - show current position
-                Log.d("VectorNav", "📍 Starting GPS tracking at current position...")
-                gpsTrackingController.startTracking(location, 0f) // North by default
-                gpsTrackingController.setTargetDistance(50) // Default 50m
 
-                // Update GPS view to show current position (even without navigation)
-                binding.gpsTrackingView.updateTracking(
-                    location.latitude, location.longitude,  // start = current
-                    location.latitude, location.longitude,  // current = same
-                    0f, 50, 0f, 0f, true  // no movement yet
-                )
+                // FORCE IMMEDIATE UPDATE: Manually trigger position update to avoid delay
+                Handler(Looper.getMainLooper()).postDelayed({
+                    gpsTrackingController.updatePosition(location, filteredAzimuth)
+                }, 100) // Small delay to ensure tracking is fully initialized
             }
-            Log.d("VectorNav", "✅ GPS tracking active: ${gpsTrackingController.isCurrentlyTracking()}")
+        } else {
+            // If no existing navigation, still force a location update for immediate display
+            locationManager.getCurrentLocation { location ->
+                // Trigger manual update to show initial state immediately
+                if (gpsTrackingController.isCurrentlyTracking()) {
+                    gpsTrackingController.updatePosition(location, filteredAzimuth)
+                }
+            }
         }
 
         Log.d("VectorNav", "Switched to GPS tracking view")
     }
-    private fun testGPSUpdate() {
-        Log.d("VectorNav", "🧪 Manual GPS test triggered")
-        val actualLocation = locationManager.getCurrentLocation { location ->
-            val posOrNeg = Math.random() - Math.random() // Might be positive, might be negative
-            val testLocation = Location("test").apply {
-                latitude = location.latitude + (Math.random() * 0.003 * posOrNeg) // Small random offset
-                longitude = location.longitude + (Math.random() * 0.003 * posOrNeg)
-                accuracy = location.accuracy
-                time = System.currentTimeMillis()
-            }
-            lastKnownLocation = testLocation
-            Log.d("VectorNav", "🧪 Test location: ${testLocation.latitude}, ${testLocation.longitude}")
 
-            if (gpsTrackingController.isCurrentlyTracking()) {
-                Log.d("VectorNav", "🧪 Updating GPS controller...")
-                gpsTrackingController.updatePosition(testLocation, filteredAzimuth)
-            } else {
-                Log.d("VectorNav", "❌ GPS tracking not active!")
-            }
-        }
-    }
     private fun markTargetFound() {
         if (gpsTrackingController.isCurrentlyTracking()) {
             locationManager.getCurrentLocation { location ->
@@ -602,6 +562,9 @@ class MainActivity : AppCompatActivity(),
         showNavigationUI()
         binding.distanceText.text = "Distance: ${targetDistance}m"
 
+        // SHOW GPS VIEW BUTTON when navigation starts
+        binding.toggleViewButton.visibility = View.VISIBLE
+
         Toast.makeText(this, "AR Navigation started! Bearing: ${targetBearing.toInt()}°", Toast.LENGTH_SHORT).show()
     }
 
@@ -636,10 +599,14 @@ class MainActivity : AppCompatActivity(),
         binding.instructionText.text = "GPS tracking active - follow the line!"
         binding.instructionText.visibility = View.VISIBLE
 
+        // SHOW GPS VIEW BUTTON when GPS tracking starts
+        binding.toggleViewButton.visibility = View.VISIBLE
+
         Toast.makeText(this, "GPS Tracking started! Bearing: ${bearing.toInt()}°", Toast.LENGTH_SHORT).show()
 
         // START EMULATOR TEST
-        if (Build.FINGERPRINT.contains("generic")) {
+        Log.d("VectorNav", "Build FINGERPRINT: ${Build.FINGERPRINT}")
+        if (Build.FINGERPRINT.contains("generic") || Build.FINGERPRINT.contains("/emu")) {
             startDirectEmulatorLocationTest()
         }
     }
@@ -647,6 +614,14 @@ class MainActivity : AppCompatActivity(),
     override fun onTrackingStopped() {
         hideNavigationUI()
         binding.gpsTrackingView.clearTracking()
+
+        // HIDE GPS VIEW BUTTON when GPS tracking stops
+        binding.toggleViewButton.visibility = View.GONE
+
+        // If we were in GPS view, switch back to compass view
+        if (isGpsViewMode) {
+            switchToCompassView()
+        }
     }
 
     // GPS Tracking callback
@@ -659,53 +634,105 @@ class MainActivity : AppCompatActivity(),
         isOnTrack: Boolean,
         confidence: Float
     ) {
-        Log.d("VectorNav", "🎯 onPositionUpdate called - updating GPS view")
-
         val trackingInfo = gpsTrackingController.getTrackingInfo()
 
+        // Use the actual GPS coordinates (not sensor fusion coordinates)
         val displayLat = lastKnownLocation?.latitude ?: currentLat
         val displayLon = lastKnownLocation?.longitude ?: currentLon
 
+        // Create location for breadcrumb using the REAL GPS coordinates
         val currentLocation = Location("gps").apply {
-            latitude = displayLat
-            longitude = displayLon
+            latitude = displayLat  // ✅ Use real GPS coordinates
+            longitude = displayLon // ✅ Use real GPS coordinates
             accuracy = if (confidence > 0.5f) 5f else 15f
             time = System.currentTimeMillis()
-            if (lastKnownLocation?.hasSpeed() == true) {
-                speed = lastKnownLocation!!.speed
-            }
         }
 
-        // Add breadcrumb synchronously
         addBreadcrumb(currentLocation, distanceFromStart)
 
-        // Update GPS tracking view immediately with the updated breadcrumbs
+        // Update GPS tracking view with breadcrumbs using the same REAL GPS coordinates
         binding.gpsTrackingView.updateTrackingWithBreadcrumbs(
             trackingInfo.startLatitude,
             trackingInfo.startLongitude,
-            displayLat,
-            displayLon,
+            displayLat,                     // ✅ Same coordinates as breadcrumb
+            displayLon,                     // ✅ Same coordinates as breadcrumb
             trackingInfo.initialBearing,
             trackingInfo.targetDistance,
             crossTrackError,
             distanceFromStart,
             isOnTrack,
-            breadcrumbs  // This list is now updated before the view update
+            breadcrumbs
         )
 
-        // Rest of your code...
         updateProgressIndicator(distanceFromStart, trackingInfo.targetDistance, distanceRemaining)
         val relativeBearing = normalizeAngle(trackingInfo.initialBearing - filteredAzimuth)
         provideTactileGuidance(relativeBearing, distanceRemaining.toInt())
-
         binding.distanceText.text = "Remaining: ${distanceRemaining.toInt()}m"
-        binding.instructionText.text = when {
-            distanceRemaining < 5 -> "You're close! Look around for your target."
-            isOnTrack -> "On track - keep going straight!"
-            crossTrackError > 0 -> "Move left to get back on track"
-            else -> "Move right to get back on track"
-        }
+        binding.instructionText.text = generateGPSGuidanceText(
+            distanceFromStart, distanceRemaining, crossTrackError,
+            trackingInfo.targetDistance, isOnTrack
+        )
         binding.instructionText.visibility = View.VISIBLE
+    }
+    private fun generateGPSGuidanceText(
+        distanceFromStart: Float,
+        distanceRemaining: Float,
+        crossTrackError: Float,
+        targetDistance: Int,
+        isOnTrack: Boolean
+    ): String {
+        val crossTrackAbs = kotlin.math.abs(crossTrackError)
+        val isPastTarget = distanceFromStart > targetDistance
+
+        return when {
+            // User found the target area
+            isPastTarget && crossTrackAbs < 3f -> {
+                val overshoot = distanceFromStart - targetDistance
+                "🎯 TARGET AREA REACHED! (+${overshoot.toInt()}m past target)"
+            }
+
+            // Past target but off to the side
+            isPastTarget && crossTrackAbs >= 3f -> {
+                val overshoot = distanceFromStart - targetDistance
+                val direction = if (crossTrackError > 0) "left" else "right"
+                "🔄 PAST TARGET (+${overshoot.toInt()}m) - Go back and ${direction} to find target"
+            }
+
+            // Very close to target
+            distanceRemaining < 5f -> {
+                if (isOnTrack) {
+                    "🎯 Almost there! Look around for your target"
+                } else {
+                    val direction = if (crossTrackError > 0) "left" else "right"
+                    "🎯 Close! Move ${direction} ${crossTrackAbs.toInt()}m to get on target line"
+                }
+            }
+
+            // Approaching target but off track
+            distanceRemaining < targetDistance * 0.5f && !isOnTrack -> {
+                val direction = if (crossTrackError > 0) "left" else "right"
+                "📍 Approaching target - Move ${direction} ${crossTrackAbs.toInt()}m to get on track"
+            }
+
+            // Medium distance - directional guidance
+            distanceRemaining >= 5f && !isOnTrack -> {
+                val direction = if (crossTrackError > 0) "left" else "right"
+                val urgency = when {
+                    crossTrackAbs > targetDistance * 0.3f -> "Sharp ${direction}"
+                    crossTrackAbs > targetDistance * 0.1f -> "Move ${direction}"
+                    else -> "Slight ${direction}"
+                }
+                "🧭 ${urgency} ${crossTrackAbs.toInt()}m to get back on bearing line"
+            }
+
+            // On track - moving toward target
+            isOnTrack && distanceRemaining >= 5f -> {
+                "✅ On track - Continue straight ${distanceRemaining.toInt()}m to target"
+            }
+
+            // Fallback
+            else -> "📍 ${distanceRemaining.toInt()}m to target"
+        }
     }
 
     override fun onTargetFound(estimatedDistance: Int, actualDistance: Float) {
@@ -719,6 +746,15 @@ class MainActivity : AppCompatActivity(),
         ).show()
 
         binding.instructionText.text = "Target found! Actual distance: ${actualDistance.toInt()}m"
+    }
+
+    override fun onTrackingReset(distanceFromStart: Float, currentTargetDistance: Int) {
+        Toast.makeText(this,
+            "🔄 GPS tracking reset - was ${distanceFromStart.toInt()}m from start",
+            Toast.LENGTH_SHORT).show()
+
+        clearBreadcrumbs()
+        Log.d("VectorNav", "🔄 Breadcrumbs cleared after GPS reset")
     }
 
     private fun showNavigationUI() {
@@ -736,6 +772,7 @@ class MainActivity : AppCompatActivity(),
         binding.instructionText.visibility = View.VISIBLE
         binding.instructionText.text = "Tap screen to set navigation target"
         binding.navigationInfo.visibility = View.GONE
+        binding.toggleViewButton.visibility = View.GONE
     }
 
     private fun showDistanceEditDialog() {
@@ -933,7 +970,7 @@ class MainActivity : AppCompatActivity(),
         val directLocationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 locationResult.lastLocation?.let { location ->
-                    Log.d("EmulatorTest", "🟢 DIRECT EMULATOR UPDATE: ${location.latitude}, ${location.longitude}")
+                    //Log.d("EmulatorTest", "🟢 DIRECT EMULATOR UPDATE: ${location.latitude}, ${location.longitude}")
                 }
             }
         }

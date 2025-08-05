@@ -21,8 +21,33 @@ class LocationManager(private val context: Context) {
     private var currentInterval: Long = 2000L // Track current update interval
     private var isLocationUpdatesActive = false
 
+    private var lastProcessedLocation: Location? = null
+    private val minimumLocationChange = 0.5f // meters
+    private val minimumTimeChange = 1000L // milliseconds
+
     init {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    }
+
+    private fun shouldProcessLocation(newLocation: Location): Boolean {
+        val lastLoc = lastProcessedLocation ?: return true
+
+        // Check time difference
+        val timeDiff = newLocation.time - lastLoc.time
+        if (timeDiff < minimumTimeChange) {
+            //Log.d("LocationManager", "📍 Skipping update - too soon (${timeDiff}ms)")
+            return false
+        }
+
+        // Check distance difference using Android's built-in method
+        val distance = lastLoc.distanceTo(newLocation)
+
+        if (distance < minimumLocationChange) {
+            //Log.d("LocationManager", "📍 Skipping update - no movement (${distance}m)")
+            return false
+        }
+
+        return true
     }
 
     fun setLocationCallback(callback: (Location) -> Unit) {
@@ -72,9 +97,15 @@ class LocationManager(private val context: Context) {
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
-                Log.d("LocationManager", "📍 LocationManager received update!")
                 locationResult.lastLocation?.let { location ->
-                    Log.d("LocationManager", "📍 New location: lat=${location.latitude}, lon=${location.longitude}, accuracy=${location.accuracy}")
+                    //Log.d("LocationManager", "📍 New location: lat=${location.latitude}, lon=${location.longitude}, accuracy=${location.accuracy}")
+
+                    // ADD THE FILTERING CHECK HERE:
+                    if (!shouldProcessLocation(location)) {
+                        return  // Skip processing this update
+                    }
+
+                    lastProcessedLocation = location
 
                     // Update movement detection
                     updateMovementState(location)
@@ -83,10 +114,7 @@ class LocationManager(private val context: Context) {
                     checkAndUpdateInterval()
 
                     // Call user callback
-                    Log.d("LocationManager", "📍 Calling user callback...")
                     userLocationCallback?.invoke(location)
-                } ?: run {
-                    Log.w("LocationManager", "❌ Location result was null!")
                 }
             }
         }

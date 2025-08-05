@@ -24,6 +24,11 @@ class GPSTrackingController(
     private var foundLongitude: Double = 0.0
     private var isTargetFound = false
 
+    // Auto-reset configuration
+    private val maxDistanceBeforeReset = 1000f // 1km threshold
+    private var lastResetCheck = 0L
+    private val resetCheckInterval = 5000L // Check every 5 seconds
+
     private lateinit var sensorFusionManager: SensorFusionManager
 
     // Callback interface for UI updates
@@ -40,6 +45,7 @@ class GPSTrackingController(
             confidence: Float  // NEW: confidence in the measurement
         )
         fun onTargetFound(estimatedDistance: Int, actualDistance: Float)
+        fun onTrackingReset(distanceFromStart: Float, currentTargetDistance: Int) {}
     }
 
     private var updateListener: GPSTrackingUpdateListener? = null
@@ -99,15 +105,61 @@ class GPSTrackingController(
     }
 
     /**
-     * Updates tracking based on current GPS position (now handled by sensor fusion)
+     * Updates tracking based on current GPS position with auto-reset logic
      */
     fun updatePosition(currentLocation: Location, deviceAzimuth: Float) {
         if (!isTracking) return
 
-        // Pass to sensor fusion manager for processing
-        sensorFusionManager.updateGpsLocation(currentLocation, deviceAzimuth)
-    }
+        // Check if we should auto-reset due to large distance
+        checkAndAutoReset(currentLocation, deviceAzimuth)
 
+        if (isTracking) {
+            // Pass to sensor fusion manager for processing
+            sensorFusionManager.updateGpsLocation(currentLocation, deviceAzimuth)
+        }
+    }
+    /**
+     * Checks if the current location is too far from start and auto-resets if needed
+     */
+    private fun checkAndAutoReset(currentLocation: Location, deviceAzimuth: Float) {
+        val currentTime = System.currentTimeMillis()
+
+        // Only check periodically to avoid constant calculations
+        if (currentTime - lastResetCheck < resetCheckInterval) {
+            return
+        }
+        lastResetCheck = currentTime
+
+        // Calculate distance from start
+        val distanceFromStart = navigationCalculator.calculateDistance(
+            startLatitude, startLongitude,
+            currentLocation.latitude, currentLocation.longitude
+        )
+
+        Log.d("GPSTracking", "Auto-reset check: distance from start = ${distanceFromStart}m")
+
+        // If distance is too large, auto-reset
+        if (distanceFromStart > maxDistanceBeforeReset) {
+            Log.d("GPSTracking", "🔄 AUTO-RESET: Distance too large (${distanceFromStart}m > ${maxDistanceBeforeReset}m)")
+            Log.d("GPSTracking", "   Old start: ($startLatitude, $startLongitude)")
+            Log.d("GPSTracking", "   New start: (${currentLocation.latitude}, ${currentLocation.longitude})")
+
+            // Store the current target distance before reset
+            val currentTargetDistance = targetDistance
+
+            // Stop current tracking
+            stopTracking()
+
+            // Notify UI about the reset
+            updateListener?.onTrackingReset(distanceFromStart, currentTargetDistance)
+
+            // Start new tracking from current location
+            startTracking(currentLocation, deviceAzimuth)
+
+            // Restore the target distance
+            setTargetDistance(currentTargetDistance)
+        }
+    }
     // SensorFusionManager.SensorFusionListener implementation
     override fun onFusedPositionUpdate(
         fusedDistance: Float,
