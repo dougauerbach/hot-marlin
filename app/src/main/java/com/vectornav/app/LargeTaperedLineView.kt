@@ -94,6 +94,8 @@ class LargeTaperedLineView(context: Context) : View(context) {
 
         Log.d("VectorNav", "Drawing road blade from ($startX, $startY) to ($endX, $endY)")
 
+        bladePath.reset()
+
         // Width calculations based on screen width
         val screenWidth = width.toFloat()
         val startWidth = screenWidth * 0.33f  // 33% of screen width at bottom
