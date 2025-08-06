@@ -324,10 +324,10 @@ class MainActivity : AppCompatActivity(),
         // Show GPS elements
         binding.cameraPreview.visibility = View.GONE
         binding.gpsTrackingView.visibility = View.VISIBLE
-        binding.foundItButton.visibility = View.VISIBLE
+        binding.foundItButton.visibility = View.GONE // make VISIBLE when ready to implement
 
         // Update toggle button
-        binding.toggleViewButton.text = "Switch to Compass View"
+        binding.toggleViewButton.text = "Set new bearing"
 
         // Transfer navigation state if needed
         if (compassNavigationController.isCurrentlyNavigating()) {
@@ -477,12 +477,12 @@ class MainActivity : AppCompatActivity(),
             // User is off the bearing line
             crossTrackAbs < 5f -> {
                 val direction = if (crossTrackError > 0) "left" else "right"
-                "Close! Move $direction ${crossTrackAbs.toInt()}m to "
+                "Close! Head $direction ${crossTrackAbs.toInt()}m"
             }
 
             crossTrackAbs < 15f -> {
                 val direction = if (crossTrackError > 0) "left" else "right"
-                "Move $direction ${crossTrackAbs.toInt()}m "
+                "Head $direction ${crossTrackAbs.toInt()}m "
             }
 
             else -> {
@@ -523,7 +523,6 @@ class MainActivity : AppCompatActivity(),
         binding.crosshairHorizontal.visibility = View.VISIBLE
         binding.crosshairCenter.visibility = View.VISIBLE
         binding.instructionText.visibility = View.VISIBLE
-        binding.instructionText.text = "Tap screen to set navigation target"
         binding.toggleViewButton.visibility = View.GONE
     }
 
@@ -660,5 +659,6 @@ class MainActivity : AppCompatActivity(),
         locationManager.stopLocationUpdates()
         sensorManager.unregisterListener(this)
         navigationLineManager.removeNavigationView()
+        binding.gpsTrackingView.cleanup()
     }
 }

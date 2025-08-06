@@ -14,7 +14,7 @@ private const val offTrackPaintColor = 0xFFE2725B.toInt() // Coral/salmon off-tr
 
 private const val bearingLinePaintColor = 0xFFE1E6E1 // Light gray-green bearing line
 
-private const val userIconSize = 200f
+private const val userIconSize = 300f
 
 /**
  * Custom view that displays GPS tracking in a top-down perspective.
@@ -24,7 +24,9 @@ class GPSTrackingView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
-) : View(context, attrs, defStyleAttr), GPSViewGestureHandler.GestureCallback {
+) : View(context, attrs, defStyleAttr),
+    GPSViewGestureHandler.GestureCallback,
+    UserIconAnimator.AnimationCallback {
     // Create our own NavigationCalculator instance
     private val navigationCalculator = NavigationCalculator()
 
@@ -39,12 +41,51 @@ class GPSTrackingView @JvmOverloads constructor(
     private var bearingLine = Path()
     private var userPosition = PointF(0f, 0f)
     private var startPosition = PointF(0f, 0f)
-    private var targetPosition = PointF(0f, 0f)
     private var crossTrackError = 0f
     private var distanceFromStart = 0f
     private var distanceRemaining = 0f
     private var isOnTrack = true
-    private var breadcrumbs = listOf<BreadcrumbPoint>()
+    private var lastDrawnScale = 0f
+    // Screen layout constants - centralized for DRY principle
+    private val dpToPx: Float by lazy { resources.displayMetrics.density }
+    private val reservedTopDp = 80f
+    private val reservedBottomDp = 140f
+    private val buttonAreaBottomDp = 120f // 60dp margin + ~48dp button height + 12dp padding
+
+    // Gesture handling
+    private lateinit var gestureHandler: GPSViewGestureHandler
+
+    // User icon animation
+    private lateinit var userIconAnimator: UserIconAnimator
+    private var animatedUserPosition = PointF(0f, 0f) // Current animated position
+    private var calculatedUserPosition = PointF(0f, 0f) // GPS-calculated position
+    private var lastGpsDistanceMeters = 0f
+    init {
+        userIconAnimator = UserIconAnimator(this)
+        gestureHandler = GPSViewGestureHandler(context, this)
+    }
+
+    // Calculated layout boundaries (updated when view dimensions change)
+    private var safeTopBoundary: Float = 0f
+    private var safeBottomBoundary: Float = 0f
+    private var availableHeight: Float = 0f
+    private var availableWidth: Float = 0f
+
+    // Method to update layout calculations when view size changes
+    private fun updateLayoutBoundaries() {
+        if (height <= 0 || width <= 0) return
+
+        val reservedTop = reservedTopDp * dpToPx
+        val reservedBottom = reservedBottomDp * dpToPx
+        val buttonAreaBottom = buttonAreaBottomDp * dpToPx
+
+        safeTopBoundary = kotlin.math.max(reservedTop, buttonAreaBottom)
+        safeBottomBoundary = height - reservedBottom
+        availableHeight = height - reservedTop - reservedBottom
+        availableWidth = width.toFloat()
+
+        Log.d("GPSTrackingView", "Layout boundaries updated: safeTop=${safeTopBoundary}, safeBottom=${safeBottomBoundary}")
+    }
 
     // Paint objects
     private val bearingLinePaint = Paint().apply {
@@ -52,14 +93,6 @@ class GPSTrackingView @JvmOverloads constructor(
         strokeWidth = 8f
         style = Paint.Style.STROKE
         isAntiAlias = true
-    }
-
-    private val offTrackPaint = Paint().apply {
-        color = offTrackPaintColor // Purple (opposite of material green) off-track indicator
-        strokeWidth = 3f
-        style = Paint.Style.STROKE
-        isAntiAlias = true
-        pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
     }
 
     private val textPaint = Paint().apply {
@@ -89,9 +122,29 @@ class GPSTrackingView @JvmOverloads constructor(
         isAntiAlias = true
     }
 
-    // Gesture handling
-    // Initialize gesture handler
-    private var gestureHandler: GPSViewGestureHandler = GPSViewGestureHandler(context, this)
+    private val gridPaint = Paint().apply {
+        color = 0x30FFFFFF.toInt() // Light white with transparency
+        strokeWidth = 1f
+        style = Paint.Style.STROKE
+        isAntiAlias = true
+    }
+
+    private val gridLabelPaint = Paint().apply {
+        color = 0x60FFFFFF.toInt() // Semi-transparent white
+        textSize = 24f
+        isAntiAlias = true
+        textAlign = Paint.Align.CENTER
+    }
+
+    // UserIconAnimator.AnimationCallback implementation
+    override fun onPositionUpdated(x: Float, y: Float) {
+        animatedUserPosition.set(x, y)
+    }
+
+    override fun requestRedraw() {
+        invalidate()
+    }
+
 
     // View transformation state (replaces fixed viewScale)
     private var viewScale = 50.0f  // Now variable instead of fixed
@@ -121,7 +174,6 @@ class GPSTrackingView @JvmOverloads constructor(
         }
     }
 
-    // Also update onScaleChanged to recalculate positions
     override fun onScaleChanged(newScale: Float) {
         val oldScale = viewScale
         viewScale = newScale
@@ -136,6 +188,11 @@ class GPSTrackingView @JvmOverloads constructor(
                 currentGpsBearing
             )
         }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        updateLayoutBoundaries()
     }
 
     override fun onViewReset() {
@@ -219,13 +276,28 @@ class GPSTrackingView @JvmOverloads constructor(
         // Convert GPS coordinates to view coordinates
         calculateViewCoordinates(startLat, startLon, currentLat, currentLon, bearing)
 
-        Log.d("GPSTrackingView", "View updated: user($userPosition), crossTrack=${crossTrackError}m, onTrack=$isOnTrack")
+        // Animate user icon to new calculated position
+        userIconAnimator.updatePosition(
+            calculatedUserPosition.x,
+            calculatedUserPosition.y,
+            lastGpsDistanceMeters
+        )
+
+        // Check if we need to recalculate grid due to scale change
+        if (viewScale != lastDrawnScale) {
+            lastDrawnScale = viewScale
+            Log.d("GPSTrackingView", "Scale changed - grid will be redrawn")
+        }
+
+        // Check bounds using the target position (where animation is heading)
+        checkAndAdjustUserIconBounds()
+
+        Log.d("GPSTrackingView", "View updated: calculated(${calculatedUserPosition.x}, ${calculatedUserPosition.y}), animated(${animatedUserPosition.x}, ${animatedUserPosition.y}), crossTrack=${crossTrackError}m, onTrack=$isOnTrack")
 
         invalidate()
     }
     fun clearTracking() {
         isTrackingActive = false
-        breadcrumbs = emptyList()
         invalidate()
     }
     private fun calculateViewCoordinates(
@@ -253,6 +325,32 @@ class GPSTrackingView @JvmOverloads constructor(
 
         Log.d("GPSTrackingView", "NavigationCalculator: distance=${distanceFromStart}m, bearing=${currentBearing}° Calculated: alongTrack=${alongTrackDistance}m, crossTrack=${crossTrackDistance}m variable scale: $viewScale pixels/meter")
 
+        // Use class-level layout constants
+        val baseStartX = width / 2f
+        val baseStartY = safeTopBoundary + availableHeight - 80 * dpToPx
+
+        // Apply pan offset to start position
+        startPosition.set(
+            baseStartX + panOffsetX,
+            baseStartY + panOffsetY
+        )
+
+        // Calculate user position (but don't set userPosition directly)
+        val baseUserX = baseStartX + (crossTrackDistance * viewScale).toFloat()
+        val baseUserY = baseStartY - (alongTrackDistance * viewScale).toFloat()
+
+        calculatedUserPosition.set(
+            baseUserX + panOffsetX,
+            baseUserY + panOffsetY
+        )
+
+        // Store GPS distance for animation calculation
+        lastGpsDistanceMeters = distanceFromStart
+
+        Log.d("CalculateViewCoordinates", "Calculated position: (${calculatedUserPosition.x}, ${calculatedUserPosition.y}), GPS distance: ${lastGpsDistanceMeters}m")
+        Log.d("CalculateViewCoordinates", "Positions with scale=${viewScale}, pan=(${panOffsetX}, ${panOffsetY}): Start: (${startPosition.x}, ${startPosition.y}) User: (${userPosition.x}, ${userPosition.y}) User off-track by: ${crossTrackDistance}m, along-track: ${alongTrackDistance}m")
+
+/*
         // Screen layout constants
         val dpToPx = resources.displayMetrics.density
         val reservedTop = 80 * dpToPx
@@ -268,38 +366,156 @@ class GPSTrackingView @JvmOverloads constructor(
         val baseStartX = width / 2f
         val baseStartY = reservedTop + availableHeight - 80 * dpToPx
 
-        // Base bearing line end position
-        val maxBearingLineLength = baseStartY - safeTopBoundary
-        val bearingLineLength = min(1000f * viewScale, maxBearingLineLength)
-        val baseTargetX = baseStartX
-        val baseTargetY = baseStartY - bearingLineLength
-
-        // Base user position
-        val baseUserX = baseStartX + (crossTrackDistance * viewScale).toFloat()
-        val baseUserY = baseStartY - (alongTrackDistance * viewScale).toFloat()
-
-        // APPLY PAN OFFSET TO ALL POSITIONS
+        // APPLY PAN OFFSET TO START POSITION
         startPosition.set(
             baseStartX + panOffsetX,
             baseStartY + panOffsetY
         )
 
-        targetPosition.set(
-            baseTargetX + panOffsetX,
-            baseTargetY + panOffsetY
-        )
+        // BEARING LINE: Calculate target from the MOVED start position, then truncate
+        // The bearing line should always try to be 1000m long, but truncated to screen bounds
+        val fullBearingLineLength = 1000f * viewScale  // Full 1000m line in pixels
+        val idealTargetX = startPosition.x  // Same X as start (vertical line)
+        val idealTargetY = startPosition.y - fullBearingLineLength  // 1000m up from start
+
+        // truncate to screen bounds (don't let it go above safe boundary)
+        val clampedTargetY = kotlin.math.max(idealTargetY, safeTopBoundary)
+        val actualBearingLineLength = startPosition.y - clampedTargetY
+
+        // Base user position (calculated from GPS, then apply pan)
+        val baseUserX = baseStartX + (crossTrackDistance * viewScale).toFloat()
+        val baseUserY = baseStartY - (alongTrackDistance * viewScale).toFloat()
 
         userPosition.set(
             baseUserX + panOffsetX,
             baseUserY + panOffsetY
         )
 
-        // Create bearing line with pan offset applied
-        bearingLine.reset()
-        bearingLine.moveTo(startPosition.x, startPosition.y)
-        bearingLine.lineTo(targetPosition.x, targetPosition.y)
-
         Log.d("CalculateViewCoordinates", "Positions with scale=${viewScale}, pan=(${panOffsetX}, ${panOffsetY}): Start: (${startPosition.x}, ${startPosition.y}) User: (${userPosition.x}, ${userPosition.y}) User off-track by: ${crossTrackDistance}m, along-track: ${alongTrackDistance}m")
+*/
+    }
+
+    private fun checkAndAdjustUserIconBounds() {
+        if (!isTrackingActive) return
+
+        val iconHalfSize = userIconSize / 2
+        val targetIconTop = calculatedUserPosition.y - iconHalfSize // Use calculated position for bounds check
+
+        if (targetIconTop < safeTopBoundary) {
+            val panAdjustment = safeTopBoundary - targetIconTop + 20f
+
+            Log.d("GPSTrackingView", "User icon will be above safe boundary - auto-panning down by ${panAdjustment}px")
+
+            val (currentPanX, currentPanY) = gestureHandler.getPanOffset()
+            gestureHandler.setPanOffset(currentPanX, currentPanY + panAdjustment)
+
+            // Recalculate with new pan offset
+            if (isTrackingActive) {
+                calculateViewCoordinates(
+                    startGpsLat, startGpsLon,
+                    lastKnownCurrentLat, lastKnownCurrentLon,
+                    currentGpsBearing
+                )
+
+                // Update animation target to new calculated position
+                userIconAnimator.updatePosition(
+                    calculatedUserPosition.x,
+                    calculatedUserPosition.y,
+                    0f // Pan adjustment, not GPS movement - use 0 for distance calculation
+                )
+            }
+
+            invalidate()
+        }
+    }
+
+    private fun drawGrid(canvas: Canvas) {
+        if (!isTrackingActive) return
+
+        // Calculate appropriate grid spacing based on scale
+        val gridSpacingMeters = getOptimalGridSpacing(viewScale)
+        val gridSpacingPixels = gridSpacingMeters * viewScale
+
+        Log.d("GPSGrid", "Drawing grid: ${gridSpacingMeters}m spacing, ${gridSpacingPixels}px, scale=${viewScale}")
+
+        // Use class-level layout constants
+        val drawableTop = safeTopBoundary
+        val drawableBottom = safeBottomBoundary
+
+        // Calculate grid origin
+        val originX = startPosition.x
+        val originY = startPosition.y
+
+        // DRAW VERTICAL LINES - within safe boundaries
+        val firstVisibleX = ((0 - originX) / gridSpacingPixels).toInt() * gridSpacingPixels + originX
+        var x = firstVisibleX
+
+        while (x <= availableWidth) {
+            if (x >= 0) {
+                canvas.drawLine(x, drawableTop, x, drawableBottom, gridPaint)
+
+                // Add distance label at bottom of drawable area
+                val distanceFromOrigin = (x - originX) / gridSpacingPixels
+                if (abs(distanceFromOrigin) > 0.1f) {
+                    val distanceLabel = "${(distanceFromOrigin * gridSpacingMeters).toInt()}m"
+                    canvas.drawText(distanceLabel, x, drawableBottom - 10f, gridLabelPaint)
+                }
+            }
+            x += gridSpacingPixels
+        }
+
+        // DRAW HORIZONTAL LINES - within safe boundaries
+        val firstVisibleY = ((drawableTop - originY) / gridSpacingPixels).toInt() * gridSpacingPixels + originY
+        var y = firstVisibleY
+
+        while (y <= drawableBottom) {
+            if (y >= drawableTop) {
+                canvas.drawLine(0f, y, availableWidth, y, gridPaint)
+
+                // Add distance label at left edge
+                val distanceFromOrigin = -(y - originY) / gridSpacingPixels
+                if (abs(distanceFromOrigin) > 0.1f) {
+                    val distanceLabel = "${(distanceFromOrigin * gridSpacingMeters).toInt()}m"
+                    canvas.drawText(distanceLabel, 30f, y - 5f, gridLabelPaint.apply {
+                        textAlign = Paint.Align.LEFT
+                    })
+                    gridLabelPaint.textAlign = Paint.Align.CENTER // Reset
+                }
+            }
+            y += gridSpacingPixels
+        }
+
+        // Draw origin marker - only if visible in drawable area
+        if (originX >= 0 && originX <= availableWidth && originY >= drawableTop && originY <= drawableBottom) {
+            val originPaint = Paint().apply {
+                color = 0x60FFFFFF.toInt()
+                strokeWidth = 2f
+                style = Paint.Style.STROKE
+                isAntiAlias = true
+            }
+
+            canvas.drawLine(originX - 20f, originY, originX + 20f, originY, originPaint)
+            canvas.drawLine(originX, originY - 20f, originX, originY + 20f, originPaint)
+        }
+    }
+
+    // Helper method to determine optimal grid spacing based on scale
+    private fun getOptimalGridSpacing(scale: Float): Float {
+        // Choose grid spacing that results in reasonable visual spacing
+        val targetPixelSpacing = 80f // Target ~80 pixels between grid lines
+        val metersPerTarget = targetPixelSpacing / scale
+
+        // Round to nice round numbers
+        return when {
+            metersPerTarget <= 1f -> 1f      // 1m grid
+            metersPerTarget <= 2f -> 2f      // 2m grid
+            metersPerTarget <= 5f -> 5f      // 5m grid
+            metersPerTarget <= 10f -> 10f    // 10m grid
+            metersPerTarget <= 20f -> 20f    // 20m grid
+            metersPerTarget <= 50f -> 50f    // 50m grid
+            metersPerTarget <= 100f -> 100f  // 100m grid
+            else -> 200f                     // 200m grid
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -319,19 +535,17 @@ class GPSTrackingView @JvmOverloads constructor(
         // Draw bearing line with drop shadow and arrowhead
         drawBearingLine(canvas)
 
-        // Draw off-track indicator if needed
-        if (!isOnTrack) {
-            val perpendicularPointX = userPosition.x
-            val perpendicularPointY = findPerpendicularPointOnLine(userPosition, startPosition, targetPosition)
-            canvas.drawLine(userPosition.x, userPosition.y, perpendicularPointX, perpendicularPointY, offTrackPaint)
-            Log.d("GPSTrackingView", "Drew OffTrack line - see it? - Start: (${userPosition.x}, ${userPosition.y}) End: ($perpendicularPointX, $perpendicularPointY)")
-        }
+        // Draw grid FIRST (below everything else)
+        drawGrid(canvas)
+
+        // Draw bearing line with drop shadow and arrowhead
+        drawBearingLine(canvas)
 
         // Draw start position marker (smaller, different color)
         drawIcon(canvas, startPosition.x, startPosition.y, R.drawable.crosshair_center, 60f)
 
-        // Draw user position icon (main focus)
-        drawIcon(canvas, userPosition.x, userPosition.y, R.drawable.user_dot_icon, userIconSize)
+        // Draw user position icon using ANIMATED position
+        drawIcon(canvas, animatedUserPosition.x, animatedUserPosition.y, R.drawable.user_dot_icon, userIconSize)
 
         // Draw gesture state info (top-left corner)
         drawGestureInfo(canvas)
@@ -363,16 +577,16 @@ class GPSTrackingView @JvmOverloads constructor(
         )
 
         val lineHeight = 35f
-        val padding = 12f
-        val startX = 16f
-        val startY = 200f // Below the toggle button
+        val padding = 20f
+        val startX = 140f
+        val startY = 600f // Below the toggle button
 
         // Draw background
-        val textWidth = 200f
+        val textWidth = 300f
         val textHeight = infoTexts.size * lineHeight + padding * 2
         canvas.drawRect(
             startX - padding,
-            startY - padding,
+            startY - padding * 2,
             startX + textWidth,
             startY + textHeight - padding,
             backgroundPaint
@@ -390,40 +604,61 @@ class GPSTrackingView @JvmOverloads constructor(
     }
 
     private fun drawBearingLine(canvas: Canvas) {
-        val shadowOffset = 4f
+        // Calculate bearing line end point with BOTH top and bottom truncation
+        val fullBearingLineLength = 1000f * viewScale  // Full 1000m line in pixels
+        val idealEndY = startPosition.y - fullBearingLineLength  // 1000m up from start
 
-        // Draw shadow line first (offset)
+        // Truncate to BOTH safe boundaries
+        val clampedEndY = idealEndY.coerceIn(safeTopBoundary, safeBottomBoundary)
+        val clampedStartY = startPosition.y.coerceIn(safeTopBoundary, safeBottomBoundary)
+
+        val arrowSize = 40f
+        val lineEndX = startPosition.x
+        val lineEndY = clampedEndY + arrowSize
+        val lineStartY = clampedStartY
+
+        Log.d("GPSBearingLine", "Line bounds: start(${startPosition.x}, ${lineStartY}) end(${lineEndX}, ${lineEndY}) - safe bounds: ${safeTopBoundary} to ${safeBottomBoundary}")
+
+        // Only draw if we have a meaningful line within bounds
+        if (lineStartY <= lineEndY + 10f) { // 10px minimum line length
+            return
+        }
+
+        // Draw shadow line first (within bounds)
+        val shadowOffset = 4f
         val shadowPath = Path()
-        shadowPath.moveTo(startPosition.x + shadowOffset, startPosition.y + shadowOffset)
-        shadowPath.lineTo(targetPosition.x + shadowOffset, targetPosition.y + shadowOffset)
+        shadowPath.moveTo(startPosition.x + shadowOffset, lineStartY + shadowOffset)
+        shadowPath.lineTo(lineEndX + shadowOffset, lineEndY + shadowOffset)
         canvas.drawPath(shadowPath, bearingLineShadowPaint)
 
-        // Draw main bearing line
+        // Draw main bearing line (within bounds)
+        bearingLine.reset()
+        bearingLine.moveTo(startPosition.x, lineStartY)
+        bearingLine.lineTo(lineEndX, lineEndY)
         canvas.drawPath(bearingLine, bearingLinePaint)
 
-        // Calculate arrowhead at the top of the bearing line
-        val arrowSize = 40f // Size of arrowhead
-        val lineEndX = targetPosition.x
-        val lineEndY = targetPosition.y-8
+        // Draw arrowhead at the clamped end position
+        val arrowTipY = lineEndY - arrowSize
+        Log.d("GPSBearingLine", "lineEndY: $lineEndY, arrowTipY: $arrowTipY, safeTopBoundary: $safeTopBoundary")
 
-        // Calculate arrowhead points (pointing up since bearing line goes up)
         val arrowPath = Path()
-        arrowPath.moveTo(lineEndX, lineEndY) // Arrow tip
-        arrowPath.lineTo(lineEndX - arrowSize/2, lineEndY + arrowSize) // Left wing
-        arrowPath.lineTo(lineEndX + arrowSize/2, lineEndY + arrowSize) // Right wing
+        arrowPath.moveTo(lineEndX, arrowTipY) // Arrow tip
+        arrowPath.lineTo(lineEndX - arrowSize/2, arrowTipY + arrowSize) // Left wing
+        arrowPath.lineTo(lineEndX + arrowSize/2, arrowTipY + arrowSize) // Right wing
         arrowPath.close()
 
         // Draw arrowhead shadow first (offset)
         val arrowShadowPath = Path()
-        arrowShadowPath.moveTo(lineEndX + shadowOffset, lineEndY + shadowOffset) // Arrow tip
-        arrowShadowPath.lineTo(lineEndX - arrowSize/2 + shadowOffset, lineEndY + arrowSize + shadowOffset) // Left wing
-        arrowShadowPath.lineTo(lineEndX + arrowSize/2 + shadowOffset, lineEndY + arrowSize + shadowOffset) // Right wing
+        arrowShadowPath.moveTo(lineEndX + shadowOffset, arrowTipY + shadowOffset)
+        arrowShadowPath.lineTo(lineEndX - arrowSize/2 + shadowOffset, arrowTipY + arrowSize + shadowOffset)
+        arrowShadowPath.lineTo(lineEndX + arrowSize/2 + shadowOffset, arrowTipY + arrowSize + shadowOffset)
         arrowShadowPath.close()
         canvas.drawPath(arrowShadowPath, arrowShadowPaint)
 
         // Draw main arrowhead
         canvas.drawPath(arrowPath, arrowPaint)
     }
+
 
     private fun drawIcon(canvas: Canvas, x: Float, y: Float, drawableResId: Int, size: Float) {
         val drawable = ContextCompat.getDrawable(context, drawableResId)
@@ -439,15 +674,11 @@ class GPSTrackingView @JvmOverloads constructor(
         }
     }
 
-    private fun findPerpendicularPointOnLine(point: PointF, lineStart: PointF, lineEnd: PointF): Float {
-        // Simplified - just return the Y coordinate of the perpendicular point
-        // Full implementation would calculate actual perpendicular intersection
-        val lineLength = sqrt((lineEnd.x - lineStart.x).pow(2) + (lineEnd.y - lineStart.y).pow(2))
-        if (lineLength == 0f) return point.y
-
-        val t = ((point.x - lineStart.x) * (lineEnd.x - lineStart.x) +
-                (point.y - lineStart.y) * (lineEnd.y - lineStart.y)) / (lineLength * lineLength)
-
-        return lineStart.y + t * (lineEnd.y - lineStart.y)
+    fun cleanup() {
+        userIconAnimator.cleanup()
+    }
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        userIconAnimator.cleanup()
     }
 }

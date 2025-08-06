@@ -7,6 +7,6 @@
     <string name="bearing">Bearing: 000°</string>
     <string name="switch_to_gps_view">Switch to GPS View</string>
     <string name="distance_50m">Distance: 50m</string>
-    <string name="found_it">🎯 Tap here when you find it!</string>
-    <string name="tap_screen_to_set_navigation_target">Tap screen to set navigation target</string>
+    <string name="found_it">Found it?</string>
+    <string name="tap_screen_to_set_navigation_target">Aim crosshair and tap to set bearing</string>
 </resources>

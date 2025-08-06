@@ -22,13 +22,14 @@
         android:id="@+id/gpsTrackingView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/gps_background"
+        android:background="#1e4e1a"
         android:scaleType="centerCrop"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
+    <!-- or android:background=@drawable/gps_background -->
 
     <!-- Vertical crosshair line -->
     <View
@@ -53,7 +54,7 @@
         app:layout_constraintTop_toTopOf="@id/crosshairVertical"
         app:layout_constraintBottom_toBottomOf="@id/crosshairVertical" />
 
-    <!-- Center dot -->
+    <!-- Center crosshair dot -->
     <View
         android:id="@+id/crosshairCenter"
         android:layout_width="8dp"
@@ -70,6 +71,7 @@
         android:layout_width="wrap_content"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
+        android:padding="16dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="60dp"
         android:layout_marginEnd="16dp"
@@ -84,22 +86,23 @@
     <!-- Found It Button (for GPS view only) -->
     <Button
         android:id="@+id/foundItButton"
-        android:layout_width="0dp"
+        android:layout_width="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="8dp"
-        android:background="#CC4CAF50"
+        android:layout_marginTop="60dp"
+        android:layout_marginEnd="8dp"
+        android:background="#CC000000"
         android:text="@string/found_it"
         android:textAllCaps="false"
         android:textColor="#FFFFFF"
         android:textSize="16sp"
         android:textStyle="bold"
         android:visibility="gone"
-        app:layout_constraintBottom_toTopOf="@+id/instructionText"
-        app:layout_constraintEnd_toEndOf="@+id/instructionText"
-        app:layout_constraintStart_toStartOf="@+id/instructionText"
-        app:layout_constraintWidth_default="spread" />
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/toggleViewButton"
+        app:layout_constraintHorizontal_bias="1.0"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <!-- Instruction Text Panel -->
     <TextView
@@ -109,6 +112,8 @@
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
         android:layout_marginBottom="32dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
         android:background="#CC000000"
         android:gravity="center"
         android:padding="16dp"
